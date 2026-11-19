@@ -797,6 +797,9 @@
     if(referenceOutput?.token===token && referenceOutput.semitones===semitones && referenceOutput.range.start<=range.start && referenceOutput.range.end>=range.end)return referenceOutput.media;
     referenceOutput?.dispose();referenceOutput=null;
     if(!semitones)return v;
+    // Preparation can include downloading and DSP. Silence the native track
+    // before awaiting it, so the user never hears the wrong key while waiting.
+    v.pause();v.muted=true;status(`正在准备原声 · ${EchoBackingPitch.label(semitones)}，可点击停止取消…`);
     const output=await EchoOriginalAudio.create({video:v,videoId,range,semitones,request:karaokeRequest,
       active:()=>token===generation,status,onError:error=>{if(token===generation){stop();status(error.message);}}},globalThis);
     if(token!==generation){output.dispose();throw Error('操作已停止。');}
@@ -836,7 +839,10 @@
     const v = video(); saveVideo(v); v.muted = false; v.playbackRate = r.speed;
     const media=await referenceMedia(v,r,token,semitones);
     const listening=EchoReferencePlayback.create({media,range:r,clock:playback,actions:playbackActions,
-      seek:at=>seek(media,at,token),show:(range,seekTo)=>showVideoTransport(semitones?`原声 · ${EchoBackingPitch.label(semitones)}`:'原声',media,range,seekTo),
+      seek:at=>seek(media,at,token),show:(range,seekTo)=>{
+        if(mode==='original')status(semitones?`正在播放原声 · ${EchoBackingPitch.label(semitones)}`:'正在播放原声…');
+        showVideoTransport(semitones?`原声 · ${EchoBackingPitch.label(semitones)}`:'原声',media,range,seekTo);
+      },
       active:()=>token===generation,changeSpeed:mode==='original',repeat:()=>mode==='original' && $('originalLoop').checked});
     originalNavigation={jump:i=>guarded(async()=>{
       if(token!==generation || mode!=='original' || !listening.ready || !cues[i])return;

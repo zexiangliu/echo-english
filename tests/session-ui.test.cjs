@@ -2703,18 +2703,20 @@ test('pitched original listening keeps the selected speed, navigation and cleanu
   await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'clip'},start:5,end:8,index:0,speed:'0.5',backingPitch:3,leadInMode:'none',cues:[{start:5,end:8,text:'First'},{start:10,end:13,text:'Next'}]});
   const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},async create(value){options=value;return {media:video,range:{start:0,end:60},dispose(){disposed++;}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
   const pending=nodes.get('original').onclick();await waitUntil(()=>video.plays.length===1);
-  assert.equal(options.semitones,3);assert.equal(video.playbackRate,.5);
+  assert.equal(options.semitones,3);assert.equal(video.playbackRate,.5);assert.match(nodes.get('status').textContent,/正在播放原声.*\+3 半音/);
   await nodes.get('captionNext').onclick();assert.equal(video.currentTime,10);assert.equal(nodes.get('clipCue').value,'1');
   nodes.get('stop').onclick();await pending;assert.equal(disposed,1);assert.equal(video.playbackRate,1.25);
   (await storage.ready).close();
 });
 
 test('stopping during prepared-original setup disposes the late output without starting playback',async()=>{
-  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let finish,disposed=0;
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let finish,disposed=0,pauses=0;
+  video.muted=false;video.pause=()=>{pauses++;};
   await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'whole'},backingPitch:2,leadInMode:'none'});
   const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},create:()=>new Promise(resolve=>{finish=()=>resolve({media:video,range:{start:0,end:60},dispose(){disposed++;}});})}}});
-  const pending=nodes.get('original').onclick();await waitUntil(()=>!!finish);nodes.get('stop').onclick();finish();await pending;
-  assert.equal(disposed,1);assert.equal(video.plays.length,0);assert.equal(nodes.get('panel').dataset.mode,'idle');(await storage.ready).close();
+  const pending=nodes.get('original').onclick();await waitUntil(()=>!!finish);assert.ok(pauses>0,'pause native YouTube audio before preparing the pitched track');assert.equal(video.muted,true);
+  nodes.get('stop').onclick();finish();await pending;
+  assert.equal(disposed,1);assert.equal(video.plays.length,0);assert.equal(video.muted,false);assert.equal(nodes.get('panel').dataset.mode,'idle');(await storage.ready).close();
 });
 
 test('jumping outside a prepared original clip in a long video prepares the next range without stale completion',async()=>{

@@ -50,3 +50,15 @@ test('cancelling native audio preload releases its URL before any video starts',
   await assert.rejects(original.create({video:f.video,videoId:'abcdefghijk',range:{start:10,end:20},semitones:0,request:f.request,active:()=>active},{...f.env,Audio:LoadingAudio,setTimeout,clearTimeout}),/取消/);
   assert.equal(f.closed(),1);assert.equal(f.video.paused,true);assert.equal(f.events.size,0);
 });
+
+test('negative original pitch reaches the playback blob and native unmute cannot mix the original key back in',async()=>{
+  const f=fixture(),rate=44100,length=rate*3;let playedBlob;
+  const samples=Float32Array.from({length},(_,i)=>.3*Math.sin(2*Math.PI*440*i/rate));
+  class AudioContext{async decodeAudioData(){return {length,duration:3,sampleRate:rate,numberOfChannels:1,getChannelData:()=>samples};}async close(){}}
+  const output=await original.create({video:f.video,videoId:'abcdefghijk',range:{start:0,end:3},semitones:-3,request:f.request,active:()=>true},{...f.env,AudioContext,URL:{createObjectURL(blob){playedBlob=blob;return 'blob:lowered-original';},revokeObjectURL(){}}});
+  const view=new DataView(await playedBlob.arrayBuffer());let crossings=0;
+  for(let i=rate;i<2*rate;i++)if(view.getInt16(44+(i-1)*4,true)<=0 && view.getInt16(44+i*4,true)>0)crossings++;
+  assert.ok(Math.abs(crossings-440*2**(-3/12))<2,`expected lowered original around 370 Hz, got ${crossings}`);
+  await output.media.play();f.video.muted=false;f.video.emit('volumechange');
+  assert.equal(f.video.muted,true);assert.equal(f.elements[0].paused,false);output.dispose();
+});
