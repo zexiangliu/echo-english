@@ -26,6 +26,8 @@
         "audio-analysis.js",
         "live-meter.js",
         "vocal-effects.js",
+        "vendor/soundtouch.js",
+        "backing-pitch.js",
         "microphone.js",
         "recording.js",
         "audio-export.js",

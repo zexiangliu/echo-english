@@ -77,3 +77,12 @@ test('a write failure rolls back the entire import, including session and favori
   db.transaction=original;
   const data=await storage.snapshot();assert(Object.values(data).every(a=>a.length===0));db.close();
 });
+
+test('practice packages preserve accompaniment keys and reject invalid semitone metadata',async()=>{
+  const source=snapshot();source.sessions[0].backingPitch=3;source.recordings[0].backingPitch=-2;
+  const restored=await pack.decode(pack.encode(source));
+  assert.equal(restored.sessions[0].backingPitch,3);assert.equal(restored.recordings[0].backingPitch,-2);
+  for(const value of [7,-7,1.5,'3',null]){
+    source.recordings[0].backingPitch=value;assert.throws(()=>pack.encode(source),/格式/);
+  }
+});

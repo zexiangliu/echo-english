@@ -1,0 +1,6 @@
+SoundTouchJS 0.3.0
+https://github.com/cutterbl/SoundTouchJS
+https://registry.npmjs.org/soundtouchjs/-/soundtouchjs-0.3.0.tgz
+License: LGPL-2.1-or-later. See SOUNDTOUCH-LICENSE.txt.
+The distributed dist/soundtouch.js is included with its copyright notice.
+Adapted on 2026-11-18. Local adaptation wraps the module in an IIFE and exposes its existing exports as EchoSoundTouch (or CommonJS exports). The source-map reference is removed. The DSP algorithm is unchanged.

@@ -37,7 +37,7 @@ async function mount(storage, overrides = {}) {
   const context={document:doc,location:{href:'https://www.youtube.com/watch?v=video',pathname:'/watch'},indexedDB:{},URL,Blob,console,setTimeout,clearTimeout,cancelAnimationFrame(){},requestAnimationFrame(){},crypto:globalThis.crypto,
     window:{addEventListener(){},speechSynthesis:{cancel(){}}},chrome:{runtime:{onMessage:{addListener(){}}}},
     EchoSubtitleEditor:require('../extension/subtitle-editor.js'),EchoSubtitleEditorView:require('../extension/subtitle-editor-view.js'),EchoSettingsDialog:require('../extension/settings-dialog.js'),EchoPracticeTools:require('../extension/practice-tools.js'),EchoCaptionTracks:require('../extension/caption-tracks.js'),EchoPanelView:require('../extension/panel-view.js'),EchoTransport:require('../extension/transport.js'),EchoPlayback:require('../extension/playback.js'),EchoPlaybackControls:require('../extension/playback-controls.js'),EchoReferencePlayback:require('../extension/reference-playback.js'),
-    EchoVocalEffects:require('../extension/vocal-effects.js'),EchoAudioExport:require('../extension/audio-export.js'),EchoAssembly:require('../extension/assembly.js'),EchoPanelSize:require('../extension/panel-size.js'),EchoLanguages:require('../extension/languages.js'),EchoKaraoke:require('../extension/karaoke.js'),EchoStorage:{...require('../extension/storage.js'),createStorage:()=>storage},EchoSelection:require('../extension/selection.js'),EchoPractice:require('../extension/practice.js'),EchoDictionary:require('../extension/dictionary.js'),EchoSubtitles:require('../extension/subtitles.js'),EchoLibrary:require('../extension/library.js'),EchoModels:require('../extension/models.js'),EchoLiveMeter:require('../extension/live-meter.js'),EchoRecording:require('../extension/recording.js'),EchoMicrophone:require('../extension/microphone.js'),EchoAudioAnalysis:require('../extension/audio-analysis.js')};
+    EchoBackingPitch:require('../extension/backing-pitch.js'),EchoVocalEffects:require('../extension/vocal-effects.js'),EchoAudioExport:require('../extension/audio-export.js'),EchoAssembly:require('../extension/assembly.js'),EchoPanelSize:require('../extension/panel-size.js'),EchoLanguages:require('../extension/languages.js'),EchoKaraoke:require('../extension/karaoke.js'),EchoStorage:{...require('../extension/storage.js'),createStorage:()=>storage},EchoSelection:require('../extension/selection.js'),EchoPractice:require('../extension/practice.js'),EchoDictionary:require('../extension/dictionary.js'),EchoSubtitles:require('../extension/subtitles.js'),EchoLibrary:require('../extension/library.js'),EchoModels:require('../extension/models.js'),EchoLiveMeter:require('../extension/live-meter.js'),EchoRecording:require('../extension/recording.js'),EchoMicrophone:require('../extension/microphone.js'),EchoAudioAnalysis:require('../extension/audio-analysis.js')};
   Object.assign(context,overrides.globals || {});
   if(!overrides.globals?.EchoVocalEffects?.createPlayer)context.EchoVocalEffects={...context.EchoVocalEffects,async createPlayer(take){return new context.Audio(take.url);}};
   // Existing UI fixtures provide a caption transport; integration fixtures can
@@ -160,7 +160,7 @@ for(const activity of ['sing','speech'])for(const cached of [false,true])test(`$
 });
 
 test('movie dubbing monitors cached background but records dry speech and uses shared mixed export',async()=>{
-  const storage=createStorage(new IDBFactory()),listeners=new Map();let time=0,monitors=0,exported;
+  const storage=createStorage(new IDBFactory()),listeners=new Map();let time=0,monitors=0,exported,monitorOptions;
   await storage.saveBacking({key:'background',videoId:'video',start:0,end:60,createdAt:1,blob:new Blob(['music'])});
   const mic={getTracks:()=>[{stop(){}}]};
   const video={duration:60,muted:false,playbackRate:1,pause(){},get currentTime(){return time;},set currentTime(v){time=v;},
@@ -172,20 +172,22 @@ test('movie dubbing monitors cached background but records dry speech and uses s
   }
   const {nodes,downloads}=await mount(storage,{title:'电影片段 - YouTube',video,globals:{MediaRecorder,
     navigator:{mediaDevices:{getUserMedia:async({audio})=>{assert.equal(audio.echoCancellation,true);assert.equal(audio.autoGainControl,true);return mic;}}},
-    EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(){monitors++;return {sync:async()=>{},pause(){},dispose(){},setVolume(){}};}},
+    EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(options){monitors++;monitorOptions=options;return {sync:async()=>{},pause(){},dispose(){},setVolume(){}};}},
     EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){exported=options;return {blob:new Blob(['mixed']),gaps:[]};}},
     requestAnimationFrame:fn=>setTimeout(fn,0),cancelAnimationFrame:clearTimeout,setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?0:ms)}});
   nodes.get('recordingPlayback').value='backing';nodes.get('recordingPlayback').onchange();
+  nodes.get('backingPitch').value='3';nodes.get('backingPitch').oninput();
   await nodes.get('record').onclick();
   await waitUntil(()=>nodes.get('record').disabled===false);
   const [take]=await storage.listTakes('video');
-  assert.equal(await take.blob.text(),'dry movie voice');assert.equal(monitors,1);
+  assert.equal(await take.blob.text(),'dry movie voice');assert.equal(monitors,1);assert.equal(monitorOptions.pitchSemitones,3);assert.equal(take.backingPitch,3);
   assert.equal(take.kind,undefined);assert.equal(take.backingKey,'background');
   assert.equal(take.backingModel,'demucs-htdemucs');assert.equal(take.withBacking,undefined);
   assert.equal(nodes.get('takeMixDownload').hidden,false);assert.match(nodes.get('takeMixDownload').textContent,/背景音/);
   nodes.get('replayVocalVolume').value='1.4';nodes.get('replayBackingVolume').value='0.3';
+  nodes.get('backingPitchReset').onclick();
   await nodes.get('takeMixDownload').onclick();
-  assert.equal(exported.takes[0].id,take.id);assert.equal(exported.backing.key,'background');
+  assert.equal(exported.takes[0].id,take.id);assert.equal(exported.takes[0].backingPitch,3);assert.equal(exported.backing.key,'background');
   assert.equal(exported.vocalVolume,1.4);assert.equal(exported.volume,0.3);
   assert.match(downloads[0].download,/电影片段.*人声\+背景音.wav$/);
   assert.equal(nodes.get('songAssembly').hidden,true);
@@ -2275,11 +2277,14 @@ test('editing alignment and reverb during replay updates the same player and sav
 });
 
 test('refresh reconnects a pending backing task, restores progress, and loads its result without starting again',async()=>{
-  const storage=createStorage(new IDBFactory()),id='a'.repeat(32),values=new Map();let polls=0,starts=0;
+  const storage=createStorage(new IDBFactory()),id='a'.repeat(32),values=new Map();let polls=0,starts=0,advancePoll;
   values.set('echo-backing-job:video',JSON.stringify({id,videoId:'video',start:10,end:20,model:'demucs-htdemucs',quality:'standard'}));
   const job={id,videoId:'video',start:10,end:20};
   const {nodes}=await mount(storage,{video:{duration:60,pause(){}},globals:{
-    setTimeout:(fn,ms)=>setTimeout(fn,ms===1500?150:ms),
+    setTimeout(fn,ms){
+      if(ms===1500){advancePoll=fn;return 0;}
+      return setTimeout(fn,ms);
+    },
     window:{localStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)},addEventListener(){}},
     chrome:{runtime:{onMessage:{addListener(){}},async sendMessage(message){
       if(message.action==='start')starts++;
@@ -2290,6 +2295,7 @@ test('refresh reconnects a pending backing task, restores progress, and loads it
   }});
   await waitUntil(()=>nodes.get('panel').dataset.mode==='separating');
   assert.equal(nodes.get('generationProgress').hidden,false);assert.equal(nodes.get('generationProgress').value,43);
+  assert.equal(typeof advancePoll,'function');advancePoll();
   await waitUntil(()=>nodes.get('panel').dataset.mode==='idle' && values.get('echo-backing-job:video')===undefined);
   assert.equal(starts,0);const backings=await storage.listBackings('video');
   assert.equal(backings.length,1);assert.equal(backings[0].start,10);assert.equal(backings[0].end,20);
@@ -2519,6 +2525,20 @@ for(const stage of ['lead-in','recording'])test(`restart from ${stage} discards 
   assert.equal(nodes.get('restartRecording').hidden,true);(await storage.ready).close();
 });
 
+test('backing key controls save per-video semitones, bound changes and restore after reload',async()=>{
+  const storage=createStorage(new IDBFactory());
+  let {nodes}=await mount(storage);
+  nodes.get('backingPitch').value='3';nodes.get('backingPitch').oninput();
+  await waitUntil(()=>nodes.get('backingPitchValue').textContent==='+3 半音');
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal((await storage.getSession('video')).backingPitch,3);
+  ({nodes}=await mount(storage));assert.equal(Number(nodes.get('backingPitch').value),3);
+  nodes.get('backingPitchUp').onclick();assert.equal(Number(nodes.get('backingPitch').value),4);
+  nodes.get('backingPitch').value='99';nodes.get('backingPitch').oninput();assert.equal(Number(nodes.get('backingPitch').value),6);
+  assert.equal(nodes.get('backingPitchUp').disabled,true);
+  nodes.get('backingPitchReset').onclick();assert.equal(nodes.get('backingPitchValue').textContent,'原调');
+  await new Promise(resolve=>setTimeout(resolve,10));(await storage.ready).close();
+});
 
 test('custom assembly previews and downloads only its range using a covering partial backing',async()=>{
   const storage=createStorage(new IDBFactory()),requests=[];
@@ -2587,10 +2607,10 @@ test('stopping a lead-in restores volume immediately even while video.play is pe
 for(const source of ['backing','original'])for(const seconds of [0,3,10])test(`skip intro and interlude with ${source} prepares ${seconds} seconds before lyrics and saves aligned vocal pieces`,async()=>{
   const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let requests=0,captures=0;
   const cues=[{start:0,end:5,text:'[Music]'},{start:5,end:8,text:'First lyric'},{start:8,end:12,text:'间奏'},{start:12,end:16,text:'Second lyric'}];
-  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'whole'},recordingPlaybackPreferences:{speech:'silent',sing:source},start:0,end:60,speed:'0.5',cues,leadInMode:'previous',leadInSeconds:seconds});
+  await storage.saveSession({videoId:'video',activity:'sing',backingPitch:3,scopes:{sing:'whole'},recordingPlaybackPreferences:{speech:'silent',sing:source},start:0,end:60,speed:'0.5',cues,leadInMode:'previous',leadInSeconds:seconds});
   await storage.saveBacking({key:'music',videoId:'video',start:0,end:60,createdAt:1,blob:new Blob(['music'])});
   class MediaRecorder{static isTypeSupported(){return true;}constructor(){this.state='inactive';this.mimeType='audio/webm';}start(){captures++;this.state='recording';}stop(){this.state='inactive';this.ondataavailable({data:new Blob(['dry-voice'])});queueMicrotask(()=>this.onstop());}}
-  const {nodes}=await mount(storage,{video,globals:{MediaRecorder,navigator:{mediaDevices:{async getUserMedia(){requests++;return {getTracks:()=>[{stop(){}}]};}}},EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(){return {sync:async()=>{},pause(){},dispose(){},setVolume(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  const {nodes}=await mount(storage,{video,globals:{MediaRecorder,navigator:{mediaDevices:{async getUserMedia(){requests++;return {getTracks:()=>[{stop(){}}]};}}},EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(options){assert.equal(options.pitchSemitones,3);return {sync:async()=>{},pause(){},dispose(){},setVolume(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
   const first=nodes.get('record').onclick();await waitUntil(()=>nodes.get('panel').dataset.mode==='recording' && video.plays.length===1);
   assert.equal(nodes.get('skipInstrumental').disabled,false);assert.match(nodes.get('skipInstrumental').textContent,/前奏/);
   const intro=nodes.get('skipInstrumental').onclick();await waitUntil(()=>requests===2 && video.plays.length===2);
@@ -2612,7 +2632,7 @@ for(const source of ['backing','original'])for(const seconds of [0,3,10])test(`s
   await waitUntil(()=>captures===3 && video.plays.length===beforeMiddle+(seconds?2:1));video.advance(15);nodes.get('stop').onclick();await Promise.all([first,intro,middle]);
   const takes=(await storage.listTakes('video')).sort((a,b)=>a.start-b.start);assert.equal(takes.length,2);
   assert.deepEqual(takes.map(t=>[t.start,t.end,t.capturedEnd,t.speed]),[[5,9,9,1],[12,60,15,1]]);
-  assert.equal(takes[0].effects,undefined);assert.ok(takes.every(t=>t.backingKey==='music' && t.capture==='vocal'));
+  assert.ok(takes.every(t=>t.backingPitch===(source==='backing'?3:0)));assert.equal(takes[0].effects,undefined);assert.ok(takes.every(t=>t.backingKey==='music' && t.capture==='vocal'));
   const plan=require('../extension/audio-export.js').plan(takes,60);assert.deepEqual(plan.segments.map(s=>[s.start,s.end]),[[5,9],[12,15]]);
   assert.equal(nodes.get('skipInstrumental').hidden,true);(await storage.ready).close();
 });
@@ -2657,4 +2677,23 @@ test('stopping while an interlude segment is saving prevents the continuation fr
   assert.equal(requests,1);assert.equal(video.plays.length,1);assert.equal(nodes.get('panel').dataset.mode,'idle');
   const [take]=await storage.listTakes('video');assert.equal(take.start,0);assert.equal(take.end,5);
   (await storage.ready).close();
+});
+
+test('assembly labels recorded keys, blocks mixed-key export and recovers after version or range selection',async()=>{
+  const storage=createStorage(new IDBFactory());let renders=0;
+  const base={videoId:'video',kind:'song',capture:'vocal',speed:1,blob:new Blob(['voice'])};
+  for(const take of [{id:'first',cueKey:'first',start:0,end:5,createdAt:1,backingPitch:3},{id:'old',cueKey:'second',start:5,end:10,createdAt:1,backingPitch:3},{id:'new',cueKey:'second',start:5,end:10,createdAt:2,backingPitch:0}])await storage.saveTake({...base,...take});
+  const {nodes}=await mount(storage,{video:{duration:10,pause(){}},globals:{EchoAudioExport:{...require('../extension/audio-export.js'),async render(){renders++;return {blob:new Blob(['mix']),gaps:[]};}}}});
+  await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyPreview').disabled,true);assert.equal(nodes.get('assemblyDownload').disabled,true);
+  assert.match(nodes.get('assemblyRangeHint').textContent,/调性不一致/);
+  const second=nodes.get('assemblyEditorList').children[1],select=second.children[1];
+  assert.ok(select.children.some(option=>/原调/.test(option.textContent)));assert.ok(select.children.some(option=>/\+3 半音/.test(option.textContent)));
+  await nodes.get('assemblyPreview').onclick();assert.equal(renders,0);
+  select.value='old';select.onchange();assert.equal(nodes.get('assemblyDownload').disabled,false);assert.match(nodes.get('assemblyEditorInfo').textContent,/\+3 半音/);
+  await nodes.get('assemblyPreview').onclick();assert.equal(renders,1);
+  select.value='new';select.onchange();assert.equal(nodes.get('assemblyPreview').disabled,true);
+  nodes.get('assemblyScope').value='custom';nodes.get('assemblyStart').value='0';nodes.get('assemblyEnd').value='5';nodes.get('assemblyScope').onchange();
+  assert.equal(nodes.get('assemblyPreview').disabled,false);await nodes.get('assemblyPreview').onclick();assert.equal(renders,2);
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
 });

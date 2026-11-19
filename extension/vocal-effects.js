@@ -100,25 +100,54 @@
     return rendered;
   }
 
-  function wav(buffer) {
-    const channels = buffer.numberOfChannels;
-    const bytes = new ArrayBuffer(44 + buffer.length * channels * 2);
-    const view = new DataView(bytes);
-    const text = (offset, value) => {for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));};
-    text(0, 'RIFF'); view.setUint32(4, bytes.byteLength - 8, true);
-    text(8, 'WAVE'); text(12, 'fmt '); view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); view.setUint16(22, channels, true);
-    view.setUint32(24, buffer.sampleRate, true); view.setUint32(28, buffer.sampleRate * channels * 2, true);
-    view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true);
-    text(36, 'data'); view.setUint32(40, bytes.byteLength - 44, true);
-    const data = Array.from({length: channels}, (_, c) => buffer.getChannelData(c));
-    let peak = 1;
-    for (const channel of data) for (const sample of channel) peak = Math.max(peak, Math.abs(sample));
-    for (let i = 0; i < buffer.length; i++) for (let c = 0; c < channels; c++) {
-      const sample = data[c][i] / peak;
-      view.setInt16(44 + (i * channels + c) * 2, Math.round(sample * (sample < 0 ? 32768 : 32767)), true);
+  // The same encoder serves short synchronous exports and cancellable long jobs.
+  function* wavSteps(buffer) {
+    const channels=buffer.numberOfChannels,bytes=new ArrayBuffer(44+buffer.length*channels*2),view=new DataView(bytes);
+    const text=(offset,value)=>{for(let i=0;i<value.length;i++)view.setUint8(offset+i,value.charCodeAt(i));};
+    text(0,'RIFF');view.setUint32(4,bytes.byteLength-8,true);text(8,'WAVE');text(12,'fmt ');view.setUint32(16,16,true);
+    view.setUint16(20,1,true);view.setUint16(22,channels,true);view.setUint32(24,buffer.sampleRate,true);
+    view.setUint32(28,buffer.sampleRate*channels*2,true);view.setUint16(32,channels*2,true);view.setUint16(34,16,true);
+    text(36,'data');view.setUint32(40,bytes.byteLength-44,true);
+    const data=Array.from({length:channels},(_,c)=>buffer.getChannelData(c)),blockSize=65536;
+    let peak=1;
+    for(let start=0;start<buffer.length;start+=blockSize){
+      const end=Math.min(buffer.length,start+blockSize);
+      for(const channel of data)for(let i=start;i<end;i++)peak=Math.max(peak,Math.abs(channel[i]));
+      yield;
     }
-    return new Blob([bytes], {type: 'audio/wav'});
+    for(let start=0;start<buffer.length;start+=blockSize){
+      const end=Math.min(buffer.length,start+blockSize);
+      for(let i=start;i<end;i++)for(let c=0;c<channels;c++){
+        const sample=data[c][i]/peak;
+        view.setInt16(44+(i*channels+c)*2,Math.round(sample*(sample<0?32768:32767)),true);
+      }
+      yield;
+    }
+    return new Blob([bytes],{type:'audio/wav'});
+  }
+  function wav(buffer){
+    const steps=wavSteps(buffer);let next;
+    do{next=steps.next();}while(!next.done);
+    return next.value;
+  }
+  function createScheduler(env=root){
+    // MessageChannel keeps cancellation responsive in background tabs too.
+    const channel=env.MessageChannel?new env.MessageChannel():null;let finishYield;
+    if(channel)channel.port1.onmessage=()=>{const resolve=finishYield;finishYield=null;resolve();};
+    return {pause:()=>new Promise(resolve=>{
+      if(channel){finishYield=resolve;channel.port2.postMessage(0);}
+      else env.setTimeout(resolve,0);
+    }),dispose(){channel?.port1.close();channel?.port2.close();}};
+  }
+  async function wavAsync(buffer,{active=()=>true}={},env=root){
+    const scheduler=createScheduler(env),steps=wavSteps(buffer);
+    try{
+      for(;;){
+        if(!active())throw Error('已取消音频编码。');
+        const next=steps.next();if(next.done)return next.value;
+        await scheduler.pause();
+      }
+    }finally{steps.return();scheduler.dispose();}
   }
 
   async function renderTake(take, env = root) {
@@ -256,7 +285,7 @@
     return player;
   }
 
-  const api = {fadeGain, durationOf, normalize, enabled, impulse, createReverb, process, wav, renderTake, createPlayer};
+  const api = {fadeGain, durationOf, normalize, enabled, impulse, createReverb, process, wav, wavAsync, createScheduler, renderTake, createPlayer};
   if (typeof module !== 'undefined') module.exports = api;
   else root.EchoVocalEffects = api;
 })(globalThis);

@@ -1,4 +1,5 @@
 (function(root) {
+  const pitch=typeof module!=='undefined'?require('./backing-pitch.js'):root.EchoBackingPitch;
   const DEFAULT_MODEL='demucs-htdemucs';
   function modelOf(value){return value?.model || DEFAULT_MODEL;}
   function qualityOf(value){return value?.quality || 'standard';}
@@ -86,7 +87,9 @@
       if(Number.isFinite(originalVolume))video.volume=originalVolume;
     }};
   }
-  async function createMonitor({blob,video,start,speed,volume=1,initialPosition,fadeInSeconds=0}, env=root) {
+  async function createMonitor({blob,video,start,speed,volume=1,initialPosition,fadeInSeconds=0,pitchSemitones=0,active=()=>true}, env=root) {
+    blob=await pitch.shiftBlob(blob,pitchSemitones,{active},env);
+    if(!active())throw Error('伴奏播放已取消。');
     const context=new env.AudioContext();
     let url,music,loadTimer=0,disposed=false;
     const clearLoading=()=>{env.clearTimeout(loadTimer);loadTimer=0;if(music)music.oncanplay=music.onerror=null;};

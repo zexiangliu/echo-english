@@ -29,6 +29,7 @@
     let rows=[],takes=[],duration=0,busy=false,revision=0,url=null;
     const audio=$('assemblyAudio');
     function element(tag,text,cls){const node=doc.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
+    const pitchLabel=take=>env.EchoBackingPitch.label(take.backingPitch);
     const time=seconds=>`${Math.floor(seconds/60)}:${(seconds%60).toFixed(1).padStart(4,'0')}`;
     const title=row=>`${time(row.start)}–${time(row.end)}`;
     function isOpen(){return !!dialog.open;}
@@ -41,11 +42,15 @@
       return {start,end,selected};
     }
     function update(){
-      let range,error='';try{range=exportRange();}catch(failure){error=failure.message;}
+      let range,key,error='';try{
+        range=exportRange();
+        const plan=env.EchoAudioExport.selectionPlan(takes,duration,range.selected);
+        key=env.EchoAudioExport.selectedPitch(plan.segments);
+      }catch(failure){error=failure.message;}
       const covered=(range?.selected || []).filter(s=>s.takeId).reduce((sum,s)=>sum+s.end-s.start,0);
       $('assemblyCustomRange').hidden=$('assemblyScope').value!=='custom';
       $('assemblyRangeHint').textContent=error || (range?`导出 ${time(range.start)}–${time(range.end)} · ${(range.end-range.start).toFixed(1)} 秒`:'');
-      $('assemblyEditorInfo').textContent=`人声覆盖 ${covered.toFixed(1)} / ${(range?range.end-range.start:0).toFixed(1)} 秒 · 未选位置保留空白`;
+      $('assemblyEditorInfo').textContent=`人声覆盖 ${covered.toFixed(1)} / ${(range?range.end-range.start:0).toFixed(1)} 秒 · 未选位置保留空白${key===undefined?'':` · ${env.EchoBackingPitch.label(key)}`}`;
       $('assemblyPreview').textContent=$('assemblyScope').value==='custom'?'▷ 试听选定范围':'▷ 试听整首';
       $('assemblyEditorTimeline').replaceChildren();
       for(const row of rows){
@@ -57,12 +62,12 @@
         row.select.value=row.choice;row.select.disabled=busy || !row.enabled || !row.candidates.length;
         row.play.disabled=busy || !id;
         const source=row.candidates.find(t=>t.id===id);
-        row.source.textContent=source?`${source.label || '人声录音'} · ${new Date(source.createdAt).toLocaleString('zh-CN')}`:row.candidates.length?'不导出此段人声':'尚未录制';
+        row.source.textContent=source?`${source.label || '人声录音'} · ${pitchLabel(source)} · ${new Date(source.createdAt).toLocaleString('zh-CN')}`:row.candidates.length?'不导出此段人声':'尚未录制';
         if(!inside)continue;
         const bar=element('span','');bar.style.flex=String(Math.min(row.end,range.end)-Math.max(row.start,range.start));bar.className=id?'selected':'';bar.title=`${title(row)} · ${source?.label || '空白'}`;$('assemblyEditorTimeline').append(bar);
       }
       for(const id of ['assemblyType','assemblyReset','assemblyScope','assemblyStart','assemblyEnd'])$(id).disabled=busy;
-      for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0;
+      for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0 || !!error;
       $('assemblyCancelRender').hidden=!busy;
       dialog.setAttribute('aria-busy',String(busy));
     }
@@ -75,7 +80,7 @@
         row.time=element('span',title(row));label.append(row.check,row.time);row.play=element('button','▷ 试听','compact');head.append(label,row.play);
         row.select=element('select');row.select.setAttribute('aria-label',`${title(row)} 的录音版本`);
         const auto=element('option','自动 · 最新版本');auto.value='auto';auto.disabled=!row.autoId;row.select.append(auto);
-        for(const take of row.candidates){const option=element('option',`${take.label || '录音'} · ${new Date(take.createdAt).toLocaleTimeString('zh-CN')} · ${take.id===row.autoId?'最新':'其他版本'}`);option.value=take.id;row.select.append(option);}
+        for(const take of row.candidates){const option=element('option',`${take.label || '录音'} · ${pitchLabel(take)} · ${new Date(take.createdAt).toLocaleTimeString('zh-CN')} · ${take.id===row.autoId?'最新':'其他版本'}`);option.value=take.id;row.select.append(option);}
         row.source=element('small');card.append(head,row.select,row.source);$('assemblyEditorList').append(card);
         row.check.onchange=()=>{if(busy)return;row.enabled=row.check.checked;if(row.enabled && row.choice==='auto' && !row.autoId)row.choice=row.candidates[0]?.id || 'auto';changed();};
         row.select.onchange=()=>{if(busy)return;row.choice=row.select.value;changed();};
@@ -89,6 +94,8 @@
       const origin=row?Math.max(row.start,range.start):range.start,end=row?Math.min(row.end,range.end):range.end;
       if(end<=origin)return;
       const selected=rangeSelection(row?[row]:rows,duration,origin,end),length=end-origin;
+      try{env.EchoAudioExport.selectedPitch(env.EchoAudioExport.selectionPlan(takes,duration,selected).segments);}
+      catch(error){$('assemblyEditorMessage').textContent=error.message;return;}
       if(!selected.some(part=>part.takeId)){$('assemblyEditorMessage').textContent='此范围内没有选中的人声，请先选择录音片段。';return;}
       const token=++revision;busy=true;clearAudio();update();
       const label=origin===0 && end===duration?'整首拼接':`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;

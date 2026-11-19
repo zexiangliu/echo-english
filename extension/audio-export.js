@@ -1,5 +1,6 @@
 (function(root){
   const effects = typeof module !== 'undefined' ? require('./vocal-effects.js') : root.EchoVocalEffects;
+  const pitch = typeof module !== 'undefined' ? require('./backing-pitch.js') : root.EchoBackingPitch;
   function filename({title,videoId,start,end,kind='recording',assembled=false,partial=false,extension='webm'}){
     const clean=value=>String(value || '').normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').replace(/^[. ]+|[. ]+$/g,'');
     let name=clean(title) || clean(`YouTube-${videoId || '录音'}`);
@@ -57,11 +58,17 @@
     if(end<duration)gaps.push({start:end,end:duration});
     return {segments,gaps,duration};
   }
+  function selectedPitch(segments){
+    const keys=[...new Set(segments.map(segment=>pitch.normalize(segment.take.backingPitch)))];
+    if(keys.length>1)throw Error(`所选录音调性不一致（${keys.map(pitch.label).join('、')}），请选择相同调性的版本后再合成；人声不会自动变调。`);
+    return keys[0] ?? 0;
+  }
   async function render({takes,duration,origin=0,selection=null,reverb={},backing=null,volume=1,vocalVolume=1,sampleRate=44100,active=()=>true},env=root){
     const shifted=takes.map(t=>({...t,start:t.start-origin,end:t.end-origin,...(Number.isFinite(t.capturedEnd)?{capturedEnd:t.capturedEnd-origin}:{})}));
     const timeline=selection===null?plan(shifted,duration):selectionPlan(shifted,duration,selection.map(s=>({...s,start:s.start-origin,end:s.end-origin})));
     if(backing && (backing.start>origin+0.001 || backing.end<origin+duration-0.001))throw Error('需要覆盖整个下载范围的伴奏，请先生成整首伴奏。');
     if(!timeline.segments.length)throw Error('此范围内没有已录人声。');
+    const semitones=selectedPitch(timeline.segments);
     const last=timeline.segments.at(-1);
     // A take's fade belongs to its vocal stem. Only a fade at the actual export
     // endpoint may also fade the backing; an unrecorded outro must remain audible.
@@ -102,7 +109,8 @@
         channels=[processed.getChannelData(0),processed.getChannelData(1)];
       }
       if(backing){
-        check();const decoded=await context.decodeAudioData(await backing.blob.arrayBuffer());check();
+        check();const original=await context.decodeAudioData(await backing.blob.arrayBuffer());check();
+        const decoded=await pitch.shiftBuffer(original,semitones,{active},env);check();
         await add(decoded,0,duration,origin-backing.start,Math.max(0,Math.min(2,volume)));
       }
       check();
@@ -121,5 +129,5 @@
       return {blob:new Blob([bytes],{type:'audio/wav'}),gaps:timeline.gaps};
     }finally{await context.close().catch(()=>{});}
   }
-  const api={filename,plan,selectionPlan,render};if(typeof module!=='undefined')module.exports=api;else root.EchoAudioExport=api;
+  const api={filename,plan,selectionPlan,selectedPitch,render};if(typeof module!=='undefined')module.exports=api;else root.EchoAudioExport=api;
 })(globalThis);

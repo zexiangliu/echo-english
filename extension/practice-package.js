@@ -3,8 +3,8 @@
 (function(root){
   const MAGIC='ECHOPACK1\n',HEADER_LIMIT=16*1024*1024,RECORD_LIMIT=50000;
   const fields={
-    sessions:'vocalReverb monitorReverb videoId title clipRangeAdjusted qualityPreferences modelPreferences scopes speechScope karaokeScope assemblyChoices loopCount prepSeconds autoNext leadInMode leadInSeconds activity paragraphFirst paragraphLast useBacking backingPreferences recordingPlaybackPreferences captionSource captionSourceName loadedCaptionSource replayVocalVolume replayBackingVolume replayWithBacking backingVolume contentLanguage captionLayout cues index start end speed showChinese hideText followCaptions selectedTakeId updatedAt',
-    recordings:'id videoId cueKey label start end speed createdAt capture kind referenceSource autoGainControl inputGainDb recordingInfo effects vocalOffset capturedEnd backingKey backingModel backingQuality withBacking',
+    sessions:'vocalReverb monitorReverb videoId title clipRangeAdjusted qualityPreferences modelPreferences scopes speechScope karaokeScope assemblyChoices loopCount prepSeconds autoNext leadInMode leadInSeconds activity paragraphFirst paragraphLast useBacking backingPreferences recordingPlaybackPreferences captionSource captionSourceName loadedCaptionSource replayVocalVolume replayBackingVolume replayWithBacking backingPitch backingVolume contentLanguage captionLayout cues index start end speed showChinese hideText followCaptions selectedTakeId updatedAt',
+    recordings:'id videoId cueKey label start end speed createdAt capture kind referenceSource autoGainControl inputGainDb recordingInfo effects vocalOffset capturedEnd backingPitch backingKey backingModel backingQuality withBacking',
     backings:'key videoId model quality start end createdAt',
     favorites:'videoId title createdAt'
   };
@@ -26,6 +26,7 @@
         if(!value || typeof value!=='object' || typeof value.videoId!=='string' || !/^[\w-]{1,100}$/.test(value.videoId))fail();
         const id=name==='recordings'?value.id:name==='backings'?value.key:value.videoId;
         if(typeof id!=='string' || !id.length || id.length>1000 || keys.has(id))fail();keys.add(id);
+        if(value.backingPitch!==undefined && (!Number.isInteger(value.backingPitch) || Math.abs(value.backingPitch)>6))fail();
         if(value.title!==undefined && (typeof value.title!=='string' || value.title.length>10000))fail();
         if(['recordings','backings'].includes(name)){
           if(!(value.blob instanceof Blob) || !value.blob.size || !Number.isFinite(value.start) || !Number.isFinite(value.end) || value.start<0 || value.end<=value.start || !Number.isFinite(value.createdAt))fail();
