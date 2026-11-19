@@ -33,6 +33,7 @@
         "audio-export.js",
         "assembly.js",
         "karaoke.js",
+        "original-audio.js",
         "models.js",
         "selection.js",
         "practice.js",

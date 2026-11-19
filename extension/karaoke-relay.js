@@ -13,9 +13,10 @@
       if(action==='cached')path='/backings/'+message.videoId+(message.quality==='lossless'?'?quality=lossless':'');
       else {
       const {start,end}=message;
+      if(message.source!==undefined && !['original','backing'].includes(message.source))throw Error('不支持的音源类型。');
       if(!Number.isFinite(start) || !Number.isFinite(end) || start<0 || end<=start || end-start>600)throw Error('请选择不超过 10 分钟的片段。');
       if(message.model!==undefined && !['demucs-htdemucs','bandit-v2-multi'].includes(message.model))throw Error('不支持的分离模型。');
-      body=JSON.stringify({videoId:message.videoId,start,end,...(message.quality==='lossless'?{quality:'lossless'}:{}),...(message.model && message.model!=='demucs-htdemucs'?{model:message.model}:{})});
+      body=JSON.stringify({videoId:message.videoId,start,end,...(message.source==='original'?{source:'original'}:{}),...(message.quality==='lossless'?{quality:'lossless'}:{}),...(message.model && message.model!=='demucs-htdemucs'?{model:message.model}:{})});
       }
     } else if(action==='health')path='/health';
     else if(action==='models')path='/models';
