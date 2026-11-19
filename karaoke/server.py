@@ -101,14 +101,20 @@ def validate_clip(data):
         raise ValueError("片段时间必须为有限数字。")
     if start < 0 or end <= start or end - start > MAX_SECONDS or end > 86400:
         raise ValueError("请选择不超过 10 分钟的片段。")
+    source = data.get("source", "backing")
+    if source not in ("backing", "original"):
+        raise ValueError("不支持的音源类型。")
     quality = data.get("quality", "standard")
     if quality not in ("standard", "lossless"):
         raise ValueError("不支持的音质选项。")
+    if source == "original":
+        quality = "lossless"
     model = model_id(data.get("model", DEFAULT_MODEL))
     start, end = round(start, 3), round(end, 3)
     if end <= start:
         raise ValueError("片段时间精度为毫秒，终点必须晚于起点。")
     return {"videoId": video, "start": start, "end": end,
+            **({"source": source} if source != "backing" else {}),
             **({"model": model} if model != DEFAULT_MODEL else {}),
             **({"quality": quality} if quality != "standard" else {})}
 
@@ -176,6 +182,8 @@ class Jobs:
     @staticmethod
     def persist(job):
         metadata = {k: job[k] for k in ("videoId", "start", "end", "createdAt")}
+        if "source" in job:
+            metadata["source"] = job["source"]
         if "model" in job:
             metadata["model"] = job["model"]
         if "quality" in job:
@@ -244,6 +252,7 @@ class Jobs:
                 pass
         if job["state"] in INSTALL_STATES:
             percent = job.get("progress")
+        result["source"] = job.get("source", "backing")
         result["model"] = job.get("model", DEFAULT_MODEL)
         result["quality"] = job.get("quality", "standard")
         result.update({k: job[k] for k in ("device", "deviceNote") if k in job})
@@ -303,6 +312,8 @@ class Jobs:
 
     @staticmethod
     def separation_output(job):
+        if job.get("source") == "original":
+            return job["directory"] / "clip.wav"
         if job.get("model") == BANDIT_MODEL:
             return job["directory"] / "background.wav"
         return job["directory"] / "stems/htdemucs/clip/no_vocals.wav"
@@ -357,12 +368,13 @@ class Jobs:
             self.command(job, args, timeout, "CPU 回退分离失败，详情见 worker.log。")
 
     def separate(self, job):
-        for package in ("yt_dlp", "demucs", "torch", "torchaudio"):
+        original = job.get("source") == "original"
+        for package in (("yt_dlp",) if original else ("yt_dlp", "demucs", "torch", "torchaudio")):
             if importlib.util.find_spec(package) is None:
                 raise RuntimeError("请先按 karaoke/README.md 安装本机分离依赖。")
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
             raise RuntimeError("请先安装 FFmpeg（含 ffprobe）。")
-        if self.models:
+        if self.models and not original:
             self.models.ensure(job.get("model", DEFAULT_MODEL), job, self.command)
         directory = job["directory"]
         job["state"] = "downloading"
@@ -380,8 +392,9 @@ class Jobs:
                           "-t", str(job["end"] - job["start"]), "-ar", "48000" if job.get("model") == BANDIT_MODEL else "44100", "-ac", "2",
                           *(["-c:a", "pcm_f32le"] if job.get("quality") == "lossless" else []),
                           str(directory / "clip.wav")], 120, "音频片段转换失败。")
-        job["state"] = "separating"
-        self.separate_audio(job)
+        if not original:
+            job["state"] = "separating"
+            self.separate_audio(job)
         job["state"] = "encoding"
         self.encode_audio(job)
         # Keep only the accompaniment and diagnostic log after success.
@@ -422,7 +435,7 @@ def handler(jobs):
                 return
             if self.path == "/health":
                 return self.reply(200, dict(service="echo-karaoke", version=1,
-                                           maxSeconds=MAX_SECONDS, modelManagement=jobs.models is not None, losslessBackings=True, **jobs.accelerator))
+                                           maxSeconds=MAX_SECONDS, modelManagement=jobs.models is not None, losslessBackings=True, originalAudio=True, **jobs.accelerator))
             if self.path == "/models" and jobs.models:
                 with jobs.lock:
                     result = jobs.models.catalog()
@@ -432,7 +445,7 @@ def handler(jobs):
             if cached:
                 with jobs.lock:
                     values = [dict(jobs.public(j)) for j in reversed(list(jobs.jobs.values()))
-                              if j["videoId"] == cached[1] and j.get("quality", "standard") == (cached[2] or "standard")
+                              if j.get("source", "backing") == "backing" and j["videoId"] == cached[1] and j.get("quality", "standard") == (cached[2] or "standard")
                               and j["state"] == "ready" and j["audio"].is_file()]
                 return self.reply(200, {"backings": values})
             match = re.fullmatch(r"/jobs/([a-f0-9]{32})(/audio)?", self.path)

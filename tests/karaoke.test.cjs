@@ -294,3 +294,11 @@ test('lead-in output follows live monitoring gain, clamps video volume and resto
   output.dispose();assert.equal(video.volume,.3);
   output.setVolume(.8);assert.equal(video.volume,.3);
 });
+
+test('relay forwards the original-source flag only for the current validated video',async()=>{
+  await request({action:'start',videoId:'jNQXAC9IVRw',start:0,end:20,source:'original',quality:'lossless'},sender,async(_,options)=>{
+    assert.equal(JSON.parse(options.body).source,'original');assert.equal(JSON.parse(options.body).quality,'lossless');
+    return {ok:true,json:async()=>({id,state:'queued'})};
+  });
+  await assert.rejects(request({action:'start',videoId:'jNQXAC9IVRw',start:0,end:20,source:'url'},sender,()=>{throw Error('must not fetch');}),/音源类型/);
+});

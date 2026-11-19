@@ -37,7 +37,7 @@
   for(const id of ['pages','scopeControls','clipBounds','singDetails'])practiceLayoutObserver?.observe($(id));
 
   let cues = [], index = -1, take = null, mode = 'idle', generation = 0,clipRangeAdjusted=false;
-  let recordingSession = null, audio = null, savedVideo = null,originalNavigation=null,recordingAttempt=null;
+  let recordingSession = null, audio = null, savedVideo = null,originalNavigation=null,recordingAttempt=null,referenceOutput=null;
   const playback = EchoPlayback.create();
   const playbackActions=EchoPlaybackControls.attach({
     pauseButton:$('pausePlayback'),speedControl:$('playbackSpeedControl'),speedInput:$('playbackSpeed'),volumeControl:$('originalVolumeControl'),volumeInput:$('originalVolume'),volumeValue:$('originalVolumeValue'),clock:playback,
@@ -749,6 +749,7 @@
   function cancelPlayback() {
     originalNavigation=null;playbackActions.clear();
     leadInOutput?.dispose();leadInOutput=null;
+    referenceOutput?.dispose();referenceOutput=null;
     recordingSession?.pauseFeedback();
     transport.hide();
     replayMonitor?.dispose();replayMonitor=null;
@@ -792,39 +793,50 @@
     const completed=await playback.seek(v,at,{force});
     if(!completed || token!==generation)throw Error('操作已停止。');
   }
+  async function referenceMedia(v,range,token,semitones=backingPitch){
+    if(referenceOutput?.token===token && referenceOutput.semitones===semitones && referenceOutput.range.start<=range.start && referenceOutput.range.end>=range.end)return referenceOutput.media;
+    referenceOutput?.dispose();referenceOutput=null;
+    if(!semitones)return v;
+    const output=await EchoOriginalAudio.create({video:v,videoId,range,semitones,request:karaokeRequest,
+      active:()=>token===generation,status,onError:error=>{if(token===generation){stop();status(error.message);}}},globalThis);
+    if(token!==generation){output.dispose();throw Error('操作已停止。');}
+    output.token=token;referenceOutput=output;return output.media;
+  }
   function leadInStart(r){return EchoPractice.leadInStart(r.start,$('leadInSeconds').value,{mode:$('leadInMode').value,cues});}
   async function playRecordingLeadIn(v,r,token,start){
     if(start>=r.start)return false;
-    mode='lead-in';controls();v.muted=false;v.playbackRate=r.speed;
-    await seek(v,start,token);
+    const media=await referenceMedia(v,{start,end:r.start},token);
+    mode='lead-in';controls();media.muted=false;media.playbackRate=r.speed;
+    await seek(media,start,token);
     if(token!==generation)return false;
-    const update=()=>status(`准备录音 · ${Math.max(0,Math.ceil((r.start-v.currentTime)/r.speed))} 秒后开始`);
-    update();v.addEventListener('timeupdate',update);
+    const update=()=>status(`准备录音 · ${Math.max(0,Math.ceil((r.start-media.currentTime)/r.speed))} 秒后开始`);
+    update();media.addEventListener('timeupdate',update);
     let completed=false,output=null;
     try{
-      output=EchoKaraoke.createLeadInOutput(v,{volume:Number($('backingVolume').value),end:r.start,speed:r.speed,fadeOut:!!recordingSession?.monitor},globalThis);leadInOutput=output;
-      await v.play();
+      output=EchoKaraoke.createLeadInOutput(media,{volume:Number($('backingVolume').value),end:r.start,speed:r.speed,fadeOut:!!recordingSession?.monitor},globalThis);leadInOutput=output;
+      await media.play();
       if(token!==generation)return false;
       await new Promise((resolve,reject)=>{
         playback.onCancel(resolve);
-        showVideoTransport('准备录音 · 前置原声',v,{start,end:r.start,speed:r.speed});
-        playback.watchEnd(v,r.start,()=>{v.pause();resolve();});
-        playback.timeout(()=>{v.pause();reject(Error('前置播放超时，请检查视频后重试。'));},EchoPractice.playbackTimeout({start,end:r.start,speed:r.speed}));
+        showVideoTransport('准备录音 · 前置原声',media,{start,end:r.start,speed:r.speed});
+        playback.watchEnd(media,r.start,()=>{media.pause();resolve();});
+        playback.timeout(()=>{media.pause();reject(Error('前置播放超时，请检查视频后重试。'));},EchoPractice.playbackTimeout({start,end:r.start,speed:r.speed}));
       });
       completed=true;
     }finally{
       output?.dispose();if(leadInOutput===output)leadInOutput=null;
-      v.removeEventListener('timeupdate',update);
+      media.removeEventListener('timeupdate',update);
       if(token===generation){playback.cancel();if(!completed)transport.hide();}
     }
     return token===generation;
   }
-  async function original(r, token, withLeadIn=true) {
+  async function original(r, token, withLeadIn=true,semitones=backingPitch) {
     r={...r,start:withLeadIn?leadInStart(r):r.start};
     closeWord();
     const v = video(); saveVideo(v); v.muted = false; v.playbackRate = r.speed;
-    const listening=EchoReferencePlayback.create({media:v,range:r,clock:playback,actions:playbackActions,
-      seek:at=>seek(v,at,token),show:(range,seekTo)=>showVideoTransport('原声',v,range,seekTo),
+    const media=await referenceMedia(v,r,token,semitones);
+    const listening=EchoReferencePlayback.create({media,range:r,clock:playback,actions:playbackActions,
+      seek:at=>seek(media,at,token),show:(range,seekTo)=>showVideoTransport(semitones?`原声 · ${EchoBackingPitch.label(semitones)}`:'原声',media,range,seekTo),
       active:()=>token===generation,changeSpeed:mode==='original',repeat:()=>mode==='original' && $('originalLoop').checked});
     originalNavigation={jump:i=>guarded(async()=>{
       if(token!==generation || mode!=='original' || !listening.ready || !cues[i])return;
@@ -834,9 +846,14 @@
         $('practiceScope').value='clip';scopePreferences[activity]='clip';
         $('start').value=String(range.start);$('end').value=String(range.end);
       }
-      const moving=listening.jump(cue.start,range);
+      const refresh=referenceOutput && (cue.start<referenceOutput.range.start || (range?.end ?? current.end)>referenceOutput.range.end);
+      const moving=refresh?null:listening.jump(cue.start,range);
       updateCaption();renderCueList();chooseCurrentTake();updateSummaries();saveProgress();
-      await moving;
+      if(refresh){
+        cancelPlayback();restoreVideo();const nextToken=++generation;
+        await original({...current,...range,speed:current.speed},nextToken,false,semitones);
+        if(nextToken===generation){finish();status('原声播放完成。');}
+      }else await moving;
     })()};
     await listening.run();
     if (token === generation) { cancelPlayback(); restoreVideo(); }
@@ -1529,7 +1546,7 @@
     const preparationStart=leadInStartOverride ?? leadInStart(r);
     const source=recordingPlayback(),outputBacking=source==='silent'?null:backingFor(r);
     const ready=source==='backing'?outputBacking:null;
-    const pitchAtCapture=source==='backing'?backingPitch:0;
+    const pitchAtCapture=backingPitch;
     if(usesBacking() && !ready)throw Error(`请先为当前片段准备${backingName()}，或在练习设置中选择原声或不播放参考音。`);
     deletedTake=null;$('undoDelete').hidden=true;
     const gainKey=singingTake?'sing':'speech',constraints=microphoneConstraints(singingTake);
@@ -1575,6 +1592,9 @@
     if(preparationStart<r.start)session.startMeter();
     await playRecordingLeadIn(v,r,token,preparationStart);
     if(!active())return false;
+    const reference=source==='original'?await referenceMedia(v,r,token,pitchAtCapture):v;
+    if(!active())return false;
+    if(source!=='original'){referenceOutput?.dispose();referenceOutput=null;}
     v.muted=source!=='original';
     // The lead-in normally pauses at this position already. Re-seeking even
     // there can flush YouTube's buffer and interrupt the beat at the handoff.
@@ -1594,7 +1614,7 @@
       vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-((session.monitor.position?.() ?? r.start)-r.start)/r.speed);
     }
     if(!active())return session.completed;
-    await v.play();
+    await reference.play();
     if(!active())return session.completed;
     if(!ready)vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-(v.currentTime-r.start)/r.speed);
     starting=false;
@@ -2051,7 +2071,7 @@
     return record();
   }); $('stop').onclick = stop;
   $('replay').onclick = guarded(async () => { if(isSinging())return songTake && playRecording(songTake);const token = ++generation; mode = 'replay'; controls(); status('正在随画面播放你的配音…'); await replay(token); });
-  $('compare').onclick = guarded(async () => { if (!take) return; const token = ++generation; mode = 'compare'; controls(); status('对比 1/2：原声'); await original(take, token, false); if (token !== generation) return; status('对比 2/2：你的配音'); await replay(token); });
+  $('compare').onclick = guarded(async () => { if (!take) return; const token = ++generation; mode = 'compare'; controls(); status('对比 1/2：原声'); await original(take, token, false,EchoBackingPitch.normalize(take.backingPitch)); if (token !== generation) return; status('对比 2/2：你的配音'); await replay(token); });
   $('import').onclick = () => { if(mode==='idle')$('file').click(); };
   $('file').onchange = guarded(async () => {
     const file=$('file').files[0];$('file').value='';
@@ -2152,6 +2172,7 @@
     stop();
     recordingSession=null;recordingAttempt=null;
     detachCaptionVideo();
+    EchoOriginalAudio.clear();
     backingRestoreRequest++;
     restoringBacking = false;
     karaokeIssue = '';

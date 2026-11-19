@@ -37,7 +37,7 @@ async function mount(storage, overrides = {}) {
   const context={document:doc,location:{href:'https://www.youtube.com/watch?v=video',pathname:'/watch'},indexedDB:{},URL,Blob,console,setTimeout,clearTimeout,cancelAnimationFrame(){},requestAnimationFrame(){},crypto:globalThis.crypto,
     window:{addEventListener(){},speechSynthesis:{cancel(){}}},chrome:{runtime:{onMessage:{addListener(){}}}},
     EchoSubtitleEditor:require('../extension/subtitle-editor.js'),EchoSubtitleEditorView:require('../extension/subtitle-editor-view.js'),EchoSettingsDialog:require('../extension/settings-dialog.js'),EchoPracticeTools:require('../extension/practice-tools.js'),EchoCaptionTracks:require('../extension/caption-tracks.js'),EchoPanelView:require('../extension/panel-view.js'),EchoTransport:require('../extension/transport.js'),EchoPlayback:require('../extension/playback.js'),EchoPlaybackControls:require('../extension/playback-controls.js'),EchoReferencePlayback:require('../extension/reference-playback.js'),
-    EchoBackingPitch:require('../extension/backing-pitch.js'),EchoVocalEffects:require('../extension/vocal-effects.js'),EchoAudioExport:require('../extension/audio-export.js'),EchoAssembly:require('../extension/assembly.js'),EchoPanelSize:require('../extension/panel-size.js'),EchoLanguages:require('../extension/languages.js'),EchoKaraoke:require('../extension/karaoke.js'),EchoStorage:{...require('../extension/storage.js'),createStorage:()=>storage},EchoSelection:require('../extension/selection.js'),EchoPractice:require('../extension/practice.js'),EchoDictionary:require('../extension/dictionary.js'),EchoSubtitles:require('../extension/subtitles.js'),EchoLibrary:require('../extension/library.js'),EchoModels:require('../extension/models.js'),EchoLiveMeter:require('../extension/live-meter.js'),EchoRecording:require('../extension/recording.js'),EchoMicrophone:require('../extension/microphone.js'),EchoAudioAnalysis:require('../extension/audio-analysis.js')};
+    EchoOriginalAudio:require('../extension/original-audio.js'),EchoBackingPitch:require('../extension/backing-pitch.js'),EchoVocalEffects:require('../extension/vocal-effects.js'),EchoAudioExport:require('../extension/audio-export.js'),EchoAssembly:require('../extension/assembly.js'),EchoPanelSize:require('../extension/panel-size.js'),EchoLanguages:require('../extension/languages.js'),EchoKaraoke:require('../extension/karaoke.js'),EchoStorage:{...require('../extension/storage.js'),createStorage:()=>storage},EchoSelection:require('../extension/selection.js'),EchoPractice:require('../extension/practice.js'),EchoDictionary:require('../extension/dictionary.js'),EchoSubtitles:require('../extension/subtitles.js'),EchoLibrary:require('../extension/library.js'),EchoModels:require('../extension/models.js'),EchoLiveMeter:require('../extension/live-meter.js'),EchoRecording:require('../extension/recording.js'),EchoMicrophone:require('../extension/microphone.js'),EchoAudioAnalysis:require('../extension/audio-analysis.js')};
   Object.assign(context,overrides.globals || {});
   if(!overrides.globals?.EchoVocalEffects?.createPlayer)context.EchoVocalEffects={...context.EchoVocalEffects,async createPlayer(take){return new context.Audio(take.url);}};
   // Existing UI fixtures provide a caption transport; integration fixtures can
@@ -2610,7 +2610,7 @@ for(const source of ['backing','original'])for(const seconds of [0,3,10])test(`s
   await storage.saveSession({videoId:'video',activity:'sing',backingPitch:3,scopes:{sing:'whole'},recordingPlaybackPreferences:{speech:'silent',sing:source},start:0,end:60,speed:'0.5',cues,leadInMode:'previous',leadInSeconds:seconds});
   await storage.saveBacking({key:'music',videoId:'video',start:0,end:60,createdAt:1,blob:new Blob(['music'])});
   class MediaRecorder{static isTypeSupported(){return true;}constructor(){this.state='inactive';this.mimeType='audio/webm';}start(){captures++;this.state='recording';}stop(){this.state='inactive';this.ondataavailable({data:new Blob(['dry-voice'])});queueMicrotask(()=>this.onstop());}}
-  const {nodes}=await mount(storage,{video,globals:{MediaRecorder,navigator:{mediaDevices:{async getUserMedia(){requests++;return {getTracks:()=>[{stop(){}}]};}}},EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(options){assert.equal(options.pitchSemitones,3);return {sync:async()=>{},pause(){},dispose(){},setVolume(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},async create(options){assert.equal(options.semitones,3);return {media:video,dispose(){}};}},MediaRecorder,navigator:{mediaDevices:{async getUserMedia(){requests++;return {getTracks:()=>[{stop(){}}]};}}},EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(options){assert.equal(options.pitchSemitones,3);return {sync:async()=>{},pause(){},dispose(){},setVolume(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
   const first=nodes.get('record').onclick();await waitUntil(()=>nodes.get('panel').dataset.mode==='recording' && video.plays.length===1);
   assert.equal(nodes.get('skipInstrumental').disabled,false);assert.match(nodes.get('skipInstrumental').textContent,/前奏/);
   const intro=nodes.get('skipInstrumental').onclick();await waitUntil(()=>requests===2 && video.plays.length===2);
@@ -2632,7 +2632,7 @@ for(const source of ['backing','original'])for(const seconds of [0,3,10])test(`s
   await waitUntil(()=>captures===3 && video.plays.length===beforeMiddle+(seconds?2:1));video.advance(15);nodes.get('stop').onclick();await Promise.all([first,intro,middle]);
   const takes=(await storage.listTakes('video')).sort((a,b)=>a.start-b.start);assert.equal(takes.length,2);
   assert.deepEqual(takes.map(t=>[t.start,t.end,t.capturedEnd,t.speed]),[[5,9,9,1],[12,60,15,1]]);
-  assert.ok(takes.every(t=>t.backingPitch===(source==='backing'?3:0)));assert.equal(takes[0].effects,undefined);assert.ok(takes.every(t=>t.backingKey==='music' && t.capture==='vocal'));
+  assert.ok(takes.every(t=>t.backingPitch===3));assert.equal(takes[0].effects,undefined);assert.ok(takes.every(t=>t.backingKey==='music' && t.capture==='vocal'));
   const plan=require('../extension/audio-export.js').plan(takes,60);assert.deepEqual(plan.segments.map(s=>[s.start,s.end]),[[5,9],[12,15]]);
   assert.equal(nodes.get('skipInstrumental').hidden,true);(await storage.ready).close();
 });
@@ -2696,4 +2696,43 @@ test('assembly labels recorded keys, blocks mixed-key export and recovers after 
   nodes.get('assemblyScope').value='custom';nodes.get('assemblyStart').value='0';nodes.get('assemblyEnd').value='5';nodes.get('assemblyScope').onchange();
   assert.equal(nodes.get('assemblyPreview').disabled,false);await nodes.get('assemblyPreview').onclick();assert.equal(renders,2);
   nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});
+
+test('pitched original listening keeps the selected speed, navigation and cleanup on the reference adapter',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});video.volume=.6;let options,disposed=0;
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'clip'},start:5,end:8,index:0,speed:'0.5',backingPitch:3,leadInMode:'none',cues:[{start:5,end:8,text:'First'},{start:10,end:13,text:'Next'}]});
+  const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},async create(value){options=value;return {media:video,range:{start:0,end:60},dispose(){disposed++;}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  const pending=nodes.get('original').onclick();await waitUntil(()=>video.plays.length===1);
+  assert.equal(options.semitones,3);assert.equal(video.playbackRate,.5);
+  await nodes.get('captionNext').onclick();assert.equal(video.currentTime,10);assert.equal(nodes.get('clipCue').value,'1');
+  nodes.get('stop').onclick();await pending;assert.equal(disposed,1);assert.equal(video.playbackRate,1.25);
+  (await storage.ready).close();
+});
+
+test('stopping during prepared-original setup disposes the late output without starting playback',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let finish,disposed=0;
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'whole'},backingPitch:2,leadInMode:'none'});
+  const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},create:()=>new Promise(resolve=>{finish=()=>resolve({media:video,range:{start:0,end:60},dispose(){disposed++;}});})}}});
+  const pending=nodes.get('original').onclick();await waitUntil(()=>!!finish);nodes.get('stop').onclick();finish();await pending;
+  assert.equal(disposed,1);assert.equal(video.plays.length,0);assert.equal(nodes.get('panel').dataset.mode,'idle');(await storage.ready).close();
+});
+
+test('jumping outside a prepared original clip in a long video prepares the next range without stale completion',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});video.duration=1200;let prepared=0,disposed=0;
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'clip'},start:5,end:8,index:0,speed:'0.5',backingPitch:3,leadInMode:'none',cues:[{start:5,end:8,text:'First'},{start:10,end:13,text:'Next'}]});
+  const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},async create(value){prepared++;return {media:video,range:{...value.range},dispose(){disposed++;}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  const pending=nodes.get('original').onclick();await waitUntil(()=>video.plays.length===1);
+  const jumping=nodes.get('captionNext').onclick();await waitUntil(()=>video.plays.length===2);
+  assert.equal(prepared,2);assert.equal(disposed,1);assert.equal(video.currentTime,10);assert.equal(video.playbackRate,.5);assert.equal(nodes.get('panel').dataset.mode,'original');
+  nodes.get('stop').onclick();await Promise.all([pending,jumping]);assert.equal(disposed,2);assert.equal(nodes.get('panel').dataset.mode,'idle');(await storage.ready).close();
+});
+
+test('original comparison follows the selected recording key rather than the later practice setting',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let key;
+  await storage.saveSession({videoId:'video',activity:'sing',backingPitch:0,leadInMode:'none'});
+  await storage.saveTake({id:'voice',videoId:'video',cueKey:'line',kind:'song',capture:'vocal',start:5,end:8,speed:1,createdAt:1,backingPitch:3,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},async create(value){key=value.semitones;return {media:video,range:{start:0,end:60},dispose(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  nodes.get('tab-recordings').onclick();await nodes.get('historyList').children[0].children[0].onclick();
+  const comparing=nodes.get('compare').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(key,3);
+  nodes.get('stop').onclick();await comparing;(await storage.ready).close();
 });
