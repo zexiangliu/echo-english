@@ -658,6 +658,8 @@
     const replayMode=$('practiceReplayMode').value;
     $('replay').textContent='▷ 回听录音';
     $('practiceReplayMode').title=`${replayMode==='simultaneous'?'原声与录音一起听':replayMode==='sequential'?'先听原声，再听录音':'仅回听录音'} · 切换回听方式`;
+    const replayHint=replayMode==='simultaneous'?'原声＋录音：同时播放原声和你的录音':replayMode==='sequential'?'原声 → 录音：先听原声，再听你的录音':'仅录音：回听你的录音';
+    for(const id of ['replay','reviewReplay']){$(id).title=`${replayHint}；右侧箭头可切换播放方式。`;$(id).setAttribute('aria-description',replayHint);}
     $('loop').textContent=whole?(singing?'↻ 循环听整首':'↻ 循环听整段'):'↻ 循环听选段';
     $('autoPractice').textContent=paragraph?'▶ 自动练当前段落':whole?(singing?'▶ 自动练整首':'▶ 自动练整段'):singing?'▶ 自动练当前片段':'▶ 自动跟读';
   }

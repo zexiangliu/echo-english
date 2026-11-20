@@ -2963,6 +2963,7 @@ for(const activity of ['speech','sing'])test(`practice ${activity} replay menu s
   assert.equal(nodes.get('replay').disabled,false);assert.equal(nodes.get('practiceReplayMode').value,'recording');
   nodes.get('practiceReplayMode').value='sequential';nodes.get('practiceReplayMode').onchange();
   assert.equal(nodes.get('reviewReplayMode').value,'sequential');assert.match(nodes.get('replay').textContent,/回听录音/);
+  assert.match(nodes.get('replay').title,/原声 → 录音/);assert.equal(nodes.get('replay').title,nodes.get('reviewReplay').title);
   const comparing=nodes.get('replay').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(sound,undefined);
   video.advance(10);await waitUntil(()=>sound?.paused===false);sound.onended();await comparing;
   assert.equal(nodes.get('page-practice').hidden,false);assert.equal(nodes.get('panel').dataset.mode,'idle');
