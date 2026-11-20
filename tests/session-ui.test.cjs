@@ -2394,7 +2394,7 @@ test('recording dialogs separate downloads and adjustments, block practice short
   assert.equal(nodes.get('recordingDialog').open,false);assert.equal(player.paused,false);
   assert.ok(nodes.get('recordingPlaybackSlot').children.includes(sharedControls));
   assert.equal(progress.oninput,seekHandler);assert.equal(nodes.get('replayVocalVolume').value,'1.25');
-  assert.equal(nodes.get('reviewReplay').disabled,false);assert.match(nodes.get('reviewReplay').textContent,/停止/);
+  assert.equal(nodes.get('reviewReplay').disabled,false);assert.match(nodes.get('reviewReplay').textContent,/回听录音/);
   nodes.get('openRecordingAdjust').onclick();assert.equal(nodes.get('recordingDialog').open,true);
   assert.ok(nodes.get('dialogPlaybackSlot').children.includes(sharedControls));assert.equal(progress.oninput,seekHandler);
   assert.equal(players,1);assert.equal(player.currentTime,3);
@@ -2962,11 +2962,11 @@ for(const activity of ['speech','sing'])test(`practice ${activity} replay menu s
   const {nodes}=await mount(storage,{video,globals:{Audio}});
   assert.equal(nodes.get('replay').disabled,false);assert.equal(nodes.get('practiceReplayMode').value,'recording');
   nodes.get('practiceReplayMode').value='sequential';nodes.get('practiceReplayMode').onchange();
-  assert.equal(nodes.get('reviewReplayMode').value,'sequential');assert.match(nodes.get('replay').textContent,/原声 → 录音/);
+  assert.equal(nodes.get('reviewReplayMode').value,'sequential');assert.match(nodes.get('replay').textContent,/回听录音/);
   const comparing=nodes.get('replay').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(sound,undefined);
   video.advance(10);await waitUntil(()=>sound?.paused===false);sound.onended();await comparing;
   assert.equal(nodes.get('page-practice').hidden,false);assert.equal(nodes.get('panel').dataset.mode,'idle');
   nodes.get('tab-recordings').onclick();nodes.get('reviewReplayMode').value='recording';nodes.get('reviewReplayMode').onchange();
-  assert.equal(nodes.get('practiceReplayMode').value,'recording');assert.match(nodes.get('reviewReplay').textContent,/回放录音/);
+  assert.equal(nodes.get('practiceReplayMode').value,'recording');assert.match(nodes.get('reviewReplay').textContent,/回听录音/);
   (await storage.ready).close();
 });

@@ -181,7 +181,7 @@
           <div class="recording-selected-heading"><div id="historyInfo"></div><button id="starTake" class="compact" aria-pressed="false">☆ 标星</button><button id="deleteTake" class="compact recording-delete-icon" aria-label="删除当前录音版本" title="删除当前选中的录音版本" disabled><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg></button></div><div id="recordingText"></div>
           <div class="version-toolbar"><div id="versionChoices" class="version-choices" role="group" aria-label="当前片段的录音版本"></div></div>
           <div id="recordingPlaybackSlot"></div>
-          <div class="row"><div class="compare-actions"><button id="reviewReplay" class="primary">▷ 回放录音</button><select id="reviewReplayMode" aria-label="录音页回听方式" title="选择回听或原声对比方式"><option value="recording">仅回听录音</option><option value="sequential">先听原声，再听录音</option><option value="simultaneous">原声与录音一起听</option></select></div></div>
+          <div class="row"><div class="compare-actions"><button id="reviewReplay" class="primary">▷ 回听录音</button><select id="reviewReplayMode" aria-label="录音页回听方式" title="选择回听或原声对比方式"><option value="recording">仅回听录音</option><option value="sequential">先听原声，再听录音</option><option value="simultaneous">原声与录音一起听</option></select></div></div>
           <div class="recording-secondary-actions"><button id="reuseSongRange" class="text-button" hidden>练习此段</button><button id="openRecordingAdjust" class="text-button">调整与详情</button><button id="openRecordingDownload" class="compact">↓ 下载</button></div>
         </div>
     </section>

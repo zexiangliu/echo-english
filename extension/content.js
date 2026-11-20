@@ -656,7 +656,7 @@
     $('record').title='使用当前范围以 1× 原速录音，保留之前的版本。';
     $('original').textContent=singing?'▶ 听原曲':'▶ 听原声';
     const replayMode=$('practiceReplayMode').value;
-    $('replay').textContent=replayMode==='simultaneous'?'▷ 原声＋录音':replayMode==='sequential'?'▷ 原声 → 录音':singing?'▷ 回听最近演唱':'▷ 回听录音';
+    $('replay').textContent='▷ 回听录音';
     $('practiceReplayMode').title=`${replayMode==='simultaneous'?'原声与录音一起听':replayMode==='sequential'?'先听原声，再听录音':'仅回听录音'} · 切换回听方式`;
     $('loop').textContent=whole?(singing?'↻ 循环听整首':'↻ 循环听整段'):'↻ 循环听选段';
     $('autoPractice').textContent=paragraph?'▶ 自动练当前段落':whole?(singing?'▶ 自动练整首':'▶ 自动练整段'):singing?'▶ 自动练当前片段':'▶ 自动跟读';
@@ -735,7 +735,7 @@
     $('originalLoopControl').hidden=mode!=='original';
     $('stop').textContent=mode==='lead-in'?'■ 取消准备':mode==='recording'?'■ 结束录音':mode==='saving'?'保存中…':'■ 停止';
     $('reviewReplay').disabled = (busy && mode!=='replay') || !take;
-    $('reviewReplay').textContent=mode==='replay'?'■ 停止回放':replayChoice==='simultaneous'?'▷ 原声＋录音':replayChoice==='sequential'?'▷ 原声 → 录音':'▷ 回放录音';
+    $('reviewReplay').textContent='▷ 回听录音';
     $('reviewReplayMode').disabled=busy || !take;
     $('reviewReplayMode').title=$('practiceReplayMode').title;
     $('reviewReplay').setAttribute('aria-pressed',String(mode==='replay'));
