@@ -173,3 +173,33 @@ test('cropping before a take fade does not introduce a fade into the export or i
   const view=new DataView(await result.blob.arrayBuffer());
   for(let i=0;i<4;i++)assert.ok(Math.abs(view.getInt16(44+i*4,true)/32767-.4)<.001,`frame ${i}`);
 });
+
+
+test('local assembly alignment adds to version delay; volume and fades affect only their interval, backing stays intact',async()=>{
+  const data=Float32Array.from([.1,.2,.3,.4,.5,.6,.7,.8]);
+  class AudioContext{async decodeAudioData(bytes){return {sampleRate:4,numberOfChannels:1,getChannelData:()=>new TextDecoder().decode(bytes)==='backing'?new Float32Array(8).fill(.05):data};}async close(){}}
+  const take=voice('a',0,2,1,{effects:{delayMs:250}});
+  const result=await render({takes:[take],duration:2,sampleRate:4,backing:{start:0,end:2,blob:new Blob(['backing'])},selection:[
+    {start:0,end:1,takeId:'a',adjustment:{delayMs:-250,volume:.5,fadeInSeconds:.5,fadeOutSeconds:.5}},
+    {start:1,end:2,takeId:'a'}
+  ]},{AudioContext,setTimeout:queueMicrotask});
+  const view=new DataView(await result.blob.arrayBuffer()),expected=[.05,.1,.2,.15,.45,.55,.65,.75];
+  for(let i=0;i<expected.length;i++)assert(Math.abs(view.getInt16(44+i*4,true)/32767-expected[i])<.0001,`sample ${i}`);
+  assert.deepEqual(take.effects,{delayMs:250});assert.deepEqual([...data],[...Float32Array.from([.1,.2,.3,.4,.5,.6,.7,.8])]);
+});
+
+test('cropped and context previews retain local fade anchors and decode each original take only once',async()=>{
+  let decoded=0;
+  class AudioContext{async decodeAudioData(){decoded++;return {sampleRate:4,numberOfChannels:1,getChannelData:()=>new Float32Array(16).fill(.4)};}async close(){}}
+  const take=voice('a',0,4),adjustment={volume:.5,fadeInSeconds:2};
+  const selection=[{start:1,end:2,takeId:'a',adjustment,adjustmentStart:0,adjustmentEnd:4},{start:2,end:3,takeId:'a',adjustment,adjustmentStart:0,adjustmentEnd:4}];
+  const result=await render({takes:[take],duration:2,origin:1,sampleRate:4,selection},{AudioContext,setTimeout:queueMicrotask});
+  assert.equal(decoded,1);
+  const view=new DataView(await result.blob.arrayBuffer());
+  assert(Math.abs(view.getInt16(44,true)/32767-.1)<.0001);
+  assert(Math.abs(view.getInt16(44+4*4,true)/32767-.2)<.0001);
+  const {selectionPlan,segmentAdjustment}=require('../extension/audio-export.js');
+  assert.equal(selectionPlan([take],4,selection).segments.length,2);
+  assert.throws(()=>selectionPlan([take],4,[{...selection[0],adjustmentStart:2}]),/微调范围/);
+  assert.deepEqual(segmentAdjustment({delayMs:Infinity,volume:99,fadeInSeconds:-1,fadeOutSeconds:NaN}),{delayMs:0,volume:2,fadeInSeconds:0,fadeOutSeconds:0});
+});

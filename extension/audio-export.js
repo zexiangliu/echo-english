@@ -1,6 +1,12 @@
 (function(root){
   const effects = typeof module !== 'undefined' ? require('./vocal-effects.js') : root.EchoVocalEffects;
   const pitch = typeof module !== 'undefined' ? require('./backing-pitch.js') : root.EchoBackingPitch;
+  // Local assembly edits are separate from a recording's reusable effects.
+  function segmentAdjustment(value={}){
+    const bounded=(key,fallback,min,max)=>Number.isFinite(value?.[key])?Math.max(min,Math.min(max,value[key])):fallback;
+    return {delayMs:Math.round(bounded('delayMs',0,-2000,2000)),volume:bounded('volume',1,0,2),fadeInSeconds:bounded('fadeInSeconds',0,0,3),fadeOutSeconds:bounded('fadeOutSeconds',0,0,3)};
+  }
+  function adjusted(value){const a=segmentAdjustment(value);return !!(a.delayMs || a.volume!==1 || a.fadeInSeconds || a.fadeOutSeconds);}
   function filename({title,videoId,start,end,kind='recording',assembled=false,partial=false,extension='webm'}){
     const clean=value=>String(value || '').normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').replace(/^[. ]+|[. ]+$/g,'');
     let name=clean(title) || clean(`YouTube-${videoId || '录音'}`);
@@ -51,8 +57,10 @@
       if(part.start<end-0.0001)throw Error('拼接片段不能重叠，请为每个时段选择一个版本。');
       if(part.start>end)gaps.push({start:end,end:part.start});
       const last=segments.at(-1);
-      if(last && last.take.id===take.id && Math.abs(last.end-part.start)<0.0001)last.end=part.end;
-      else segments.push({start:part.start,end:part.end,take});
+      const local=adjusted(part.adjustment)?{adjustment:segmentAdjustment(part.adjustment),adjustmentStart:part.adjustmentStart ?? part.start,adjustmentEnd:part.adjustmentEnd ?? part.end}:null;
+      if(local && (!Number.isFinite(local.adjustmentStart) || !Number.isFinite(local.adjustmentEnd) || local.adjustmentStart>part.start || local.adjustmentEnd<part.end || local.adjustmentEnd<=local.adjustmentStart))throw Error('段落微调范围无效。');
+      if(!local && last && !last.adjustment && last.take.id===take.id && Math.abs(last.end-part.start)<0.0001)last.end=part.end;
+      else segments.push({start:part.start,end:part.end,take,...local});
       end=part.end;
     }
     if(end<duration)gaps.push({start:end,end:duration});
@@ -65,7 +73,7 @@
   }
   async function render({takes,duration,origin=0,selection=null,reverb={},backing=null,volume=1,vocalVolume=1,sampleRate=44100,active=()=>true},env=root){
     const shifted=takes.map(t=>({...t,start:t.start-origin,end:t.end-origin,...(Number.isFinite(t.capturedEnd)?{capturedEnd:t.capturedEnd-origin}:{})}));
-    const timeline=selection===null?plan(shifted,duration):selectionPlan(shifted,duration,selection.map(s=>({...s,start:s.start-origin,end:s.end-origin})));
+    const timeline=selection===null?plan(shifted,duration):selectionPlan(shifted,duration,selection.map(s=>({...s,start:s.start-origin,end:s.end-origin,...(s.adjustment?{adjustmentStart:(s.adjustmentStart ?? s.start)-origin,adjustmentEnd:(s.adjustmentEnd ?? s.end)-origin}:{})})));
     if(backing && (backing.start>origin+0.001 || backing.end<origin+duration-0.001))throw Error('需要覆盖整个下载范围的伴奏，请先生成整首伴奏。');
     if(!timeline.segments.length)throw Error('此范围内没有已录人声。');
     const semitones=selectedPitch(timeline.segments);
@@ -79,15 +87,21 @@
     let vocalBuffer=null,channels;
     const check=()=>{if(!active())throw Error('已取消合成。');};
     const pause=()=>new Promise(resolve=>env.setTimeout(resolve,0));
-    async function add(buffer,start,end,offset,gain,fadeEnd=0,fadeSeconds=0){
+    async function add(buffer,start,end,offset,gain,fadeEnd=0,fadeSeconds=0,local=null){
       const from=Math.round(start*sampleRate),to=Math.min(length,Math.round(end*sampleRate));
+      const fadeIn=local?Math.min(local.end-local.start,local.fadeInSeconds):0,fadeOut=local?Math.min(local.end-local.start,local.fadeOutSeconds):0;
       for(let block=from;block<to;block+=262144){
         check();const stop=Math.min(to,block+262144);
         for(let c=0;c<2;c++){
           const data=buffer.getChannelData(Math.min(c,buffer.numberOfChannels-1));
           for(let i=block;i<stop;i++){
             const position=(offset+(i-from)/sampleRate)*buffer.sampleRate,index=Math.floor(position),fraction=position-index;
-            const envelope=fadeSeconds>0?effects.fadeGain(i/sampleRate,fadeEnd,fadeSeconds):1;
+            const time=i/sampleRate;
+            let envelope=fadeSeconds>0?effects.fadeGain(time,fadeEnd,fadeSeconds):1;
+            if(local){
+              if(fadeIn>0)envelope*=Math.max(0,Math.min(1,(time-local.start)/fadeIn));
+              if(fadeOut>0)envelope*=Math.max(0,Math.min(1,(local.end-time)/fadeOut));
+            }
             if(index>=0 && index<data.length)channels[c][i]+=((data[index] || 0)*(1-fraction)+(data[Math.min(index+1,data.length-1)] || 0)*fraction)*gain*envelope;
           }
         }
@@ -102,7 +116,10 @@
         check();const decoded=await context.decodeAudioData(await take.blob.arrayBuffer());check();
         const settings=effects.normalize(take.effects),fadeEnd=Math.min(take.end,take.capturedEnd ?? take.end);
         const fadeSeconds=finalFade>0 && take.id===last.take.id?0:settings.fadeOutSeconds;
-        for(const segment of timeline.segments.filter(s=>s.take.id===take.id))await add(decoded,segment.start,segment.end,segment.start-take.start+(take.vocalOffset || 0)-settings.delayMs/1000,Math.max(0,Math.min(2,vocalVolume)),fadeEnd,fadeSeconds);
+        for(const segment of timeline.segments.filter(s=>s.take.id===take.id)){
+          const local=segmentAdjustment(segment.adjustment);
+          await add(decoded,segment.start,segment.end,segment.start-take.start+(take.vocalOffset || 0)-(settings.delayMs+local.delayMs)/1000,Math.max(0,Math.min(2,vocalVolume))*local.volume,fadeEnd,fadeSeconds,segment.adjustment?{...local,start:segment.adjustmentStart,end:segment.adjustmentEnd}:null);
+        }
       }
       if (vocalBuffer) {
         check();const processed=await effects.process(vocalBuffer,reverbSettings,env);check();
@@ -129,5 +146,5 @@
       return {blob:new Blob([bytes],{type:'audio/wav'}),gaps:timeline.gaps};
     }finally{await context.close().catch(()=>{});}
   }
-  const api={filename,plan,selectionPlan,selectedPitch,render};if(typeof module!=='undefined')module.exports=api;else root.EchoAudioExport=api;
+  const api={segmentAdjustment,adjusted,filename,plan,selectionPlan,selectedPitch,render};if(typeof module!=='undefined')module.exports=api;else root.EchoAudioExport=api;
 })(globalThis);

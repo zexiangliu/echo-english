@@ -13,20 +13,25 @@
       const autoId=automatic.segments.find(s=>s.start<=start && s.end>=end)?.take.id || null;
       const previous=Array.isArray(saved)?saved.find(s=>s && Number.isFinite(s.start) && Number.isFinite(s.end) && s.start<=start && s.end>=end):null;
       const valid=previous && (previous.choice==='auto' && autoId || candidates.some(t=>t.id===previous.choice));
-      rows.push({start,end,candidates,autoId,choice:valid?previous.choice:autoId?'auto':candidates[0]?.id || 'auto',enabled:previous?.enabled===false?false:valid?true:!!autoId});
+      rows.push({start,end,candidates,autoId,choice:valid?previous.choice:autoId?'auto':candidates[0]?.id || 'auto',enabled:previous?.enabled===false?false:valid?true:!!autoId,adjustments:Array.isArray(previous?.adjustments)?previous.adjustments.filter(a=>a && candidates.some(t=>t.id===a.takeId)).map(a=>({takeId:a.takeId,...api.segmentAdjustment(a)})):[]});
     }
     return rows;
   }
-  function selections(rows){return rows.map(r=>({start:r.start,end:r.end,takeId:r.enabled?(r.choice==='auto'?r.autoId:r.choice):null}));}
+  function selection(row,takeId){
+    const adjustment=row.adjustments?.find(a=>a.takeId===takeId);
+    return {start:row.start,end:row.end,takeId,...(adjustment?{adjustment:{...adjustment},adjustmentStart:row.start,adjustmentEnd:row.end}:{})};
+  }
+  function selections(rows){return rows.map(r=>selection(r,r.enabled?(r.choice==='auto'?r.autoId:r.choice):null));}
   function rangeSelection(rows,duration,start=0,end=duration){
     if(!Number.isFinite(start) || !Number.isFinite(end) || start<0 || end>duration || end<=start || end-start>600)throw Error('请输入有效的起止时间：终点需大于起点，不能超出视频，最长 10 分钟。');
     return selections(rows).filter(row=>row.end>start && row.start<end).map(row=>({...row,start:Math.max(start,row.start),end:Math.min(end,row.end)}));
   }
-  function choices(rows){return rows.map(r=>({start:r.start,end:r.end,choice:r.choice,enabled:r.enabled}));}
+  function choices(rows){return rows.map(r=>({start:r.start,end:r.end,choice:r.choice,enabled:r.enabled,...(r.adjustments?.length?{adjustments:r.adjustments.map(a=>({...a}))}:{})}));}
   function preview(takes,duration,saved,api=root.EchoAudioExport){return api.selectionPlan(takes,duration,selections(buildRows(takes,duration,saved,api)));}
   function attach({view,doc=root.document,env=root,onRender,onDownload,onChange=()=>{},onClose=()=>{},onStar=null}){
     const $=id=>view.getElementById(id),dialog=$('assemblyDialog'),urlApi=env.URL;
-    let rows=[],takes=[],duration=0,busy=false,revision=0,url=null;
+    let rows=[],takes=[],duration=0,busy=false,revision=0,url=null,editing=null;
+    const adjustDialog=$('assemblyAdjustDialog');
     const starring=new Set();
     const audio=$('assemblyAudio');
     function element(tag,text,cls){const node=doc.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
@@ -61,6 +66,10 @@
         const id=row.enabled?(row.choice==='auto'?row.autoId:row.choice):null;
         row.check.checked=!!id;row.check.disabled=busy || !row.candidates.length;
         row.card.dataset.selected=String(!!id);
+        row.adjust.disabled=busy || !id;
+        row.adjust.hidden=!id;
+        const local=env.EchoAudioExport.segmentAdjustment(row.adjustments.find(a=>a.takeId===id));
+        row.summary.textContent=env.EchoAudioExport.adjusted(local)?summary(local):'';
         row.count.textContent=row.candidates.length?`${row.candidates.length} 个可选片段`:'尚未录制 · 人声留空';
         for(const option of row.options){
           const selected=option.take.id===id;
@@ -81,6 +90,8 @@
       for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0 || !!error;
       $('assemblyCancelRender').hidden=!busy;
       dialog.setAttribute('aria-busy',String(busy));
+      for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut','assemblyLocalEarlier','assemblyLocalLater','assemblyLocalReset','assemblyLocalPreview','assemblyLocalContext'])$(id).disabled=busy;
+      $('assemblyLocalCancel').hidden=!busy;
     }
     function changed(){revision++;clearAudio();$('assemblyEditorMessage').textContent='选择已更新，请重新试听。';onChange(choices(rows));update();}
     function draw(){
@@ -113,23 +124,25 @@
           };
           item.append(choose,play,star);candidates.append(item);row.options.push({take,choose,play,badge,heading,star});
         }
-        card.append(head,candidates);$('assemblyEditorList').append(card);
+        const actions=element('div',undefined,'assembly-row-actions');row.summary=element('small');row.adjust=element('button','微调','compact');
+        row.adjust.onclick=()=>openAdjustment(row);actions.append(row.summary,row.adjust);
+        card.append(head,candidates,actions);$('assemblyEditorList').append(card);
         row.check.onchange=()=>{if(busy)return;row.enabled=row.check.checked;if(row.enabled && row.choice==='auto' && !row.autoId)row.choice=row.candidates[0]?.id || 'auto';changed();};
       }
       update();
     }
-    async function render(action,row=null,auditionId=null){
+    async function render(action,row=null,auditionId=null,context=false){
       if(busy || !isOpen())return;
       let range;try{range=exportRange();}catch(error){$('assemblyEditorMessage').textContent=error.message;update();return;}
-      const origin=row?Math.max(row.start,range.start):range.start,end=row?Math.min(row.end,range.end):range.end;
+      const origin=row?Math.max(row.start-(context?2:0),range.start):range.start,end=row?Math.min(row.end+(context?2:0),range.end):range.end;
       if(end<=origin)return;
-      const selected=auditionId?[{start:origin,end,takeId:auditionId}]:rangeSelection(row?[row]:rows,duration,origin,end),length=end-origin;
+      const selected=auditionId?[{...selection(row,auditionId),start:origin,end}]:rangeSelection(context?rows:row?[row]:rows,duration,origin,end),length=end-origin;
       try{env.EchoAudioExport.selectedPitch(env.EchoAudioExport.selectionPlan(takes,duration,selected).segments);}
       catch(error){$('assemblyEditorMessage').textContent=error.message;return;}
       if(!selected.some(part=>part.takeId)){$('assemblyEditorMessage').textContent='此范围内没有选中的人声，请先选择录音片段。';return;}
       const token=++revision;busy=true;clearAudio();update();
       const audition=auditionId?row.candidates.find(take=>take.id===auditionId):null;
-      const label=audition?`${title({start:origin,end})} · ${audition.label || '人声录音'} · ${pitchLabel(audition)}`:origin===0 && end===duration?'整首拼接':`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
+      const label=context?`段落衔接 ${title({start:origin,end})}`:audition?`${title({start:origin,end})} · ${audition.label || '人声录音'} · ${pitchLabel(audition)}`:origin===0 && end===duration?'整首拼接':`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
       const active=()=>isOpen() && token===revision;
       try{
         const result=await onRender({selection:selected,origin,duration:length,withMusic:$('assemblyType').value==='mixed',active});
@@ -137,14 +150,14 @@
         if(action==='download'){onDownload(result.blob,{origin,duration:length,partial:origin!==0 || end!==duration});$('assemblyEditorMessage').textContent='已按当前选择开始下载。';}
         else{
           url=urlApi.createObjectURL(result.blob);audio.src=url;audio.hidden=false;audio.load?.();$('assemblyAudioLabel').textContent=`试听：${label}`;
-          $('assemblyEditorMessage').textContent=audition?'正在试听此候选片段；点击“选用”才会修改拼接。':'已生成完整拼接，可在播放器中拖动进度。';
+          $('assemblyEditorMessage').textContent=audition?'正在试听此候选片段；点击“选用”才会修改拼接。':context?'已生成前后衔接试听，可在播放器中拖动进度。':row?'已生成本段试听，可在播放器中拖动进度。':'已生成完整拼接，可在播放器中拖动进度。';
           try{await audio.play?.();}catch{if(active())$('assemblyEditorMessage').textContent='试听已准备好，请点击播放器开始播放。';}
         }
       }catch(error){if(active())$('assemblyEditorMessage').textContent=error.message || '拼接失败，请重试。';}
       finally{if(active()){busy=false;update();}}
     }
     function open(options){
-      takes=options.takes;duration=options.duration;rows=buildRows(takes,duration,options.choices,env.EchoAudioExport);
+      closeAdjustment();takes=options.takes;duration=options.duration;rows=buildRows(takes,duration,options.choices,env.EchoAudioExport);
       revision++;busy=false;clearAudio();$('assemblyScope').value='whole';$('assemblyStart').value='0';$('assemblyEnd').value=String(duration);$('assemblyStart').max=$('assemblyEnd').max=String(duration);$('assemblyType').value=options.withMusic?'mixed':'vocal';
       $('assemblyEditorMessage').textContent='沿时间轴逐段试听候选片段，点击选用；重叠区间默认使用最新录音。选好后可完整试听再导出。';
       const skipped=takes.filter(t=>t.kind==='song' && t.capture==='vocal' && !t.withBacking && t.speed!==1).length;
@@ -152,10 +165,59 @@
       draw();if(dialog.showModal)dialog.showModal();else dialog.open=true;$('assemblyEditorList').scrollTop=0;
     }
     function close(){
-      if(!isOpen())return;revision++;busy=false;clearAudio();
+      if(!isOpen())return;closeAdjustment();revision++;busy=false;clearAudio();
       if(dialog.close)dialog.close();else dialog.open=false;
       onClose();$('assembleSong').focus();
     }
+    function summary(a){
+      const parts=[];
+      if(a.delayMs)parts.push(`${a.delayMs<0?'提前':'延后'} ${Math.abs(a.delayMs)} ms`);
+      if(a.volume!==1)parts.push(`音量 ${Math.round(a.volume*100)}%`);
+      if(a.fadeInSeconds)parts.push(`淡入 ${a.fadeInSeconds}s`);
+      if(a.fadeOutSeconds)parts.push(`淡出 ${a.fadeOutSeconds}s`);
+      return parts.join(' · ');
+    }
+    function adjustmentFields(){
+      if(!editing)return;
+      const {row,id}=editing,source=row.candidates.find(t=>t.id===id),a=env.EchoAudioExport.segmentAdjustment(row.adjustments.find(a=>a.takeId===id));
+      $('assemblyLocalDelay').value=a.delayMs;$('assemblyLocalVolume').value=Math.round(a.volume*100);
+      $('assemblyLocalFadeIn').value=a.fadeInSeconds;$('assemblyLocalFadeOut').value=a.fadeOutSeconds;
+      $('assemblyLocalFadeIn').max=$('assemblyLocalFadeOut').max=Math.min(3,row.end-row.start);
+      const inherited=env.EchoVocalEffects.normalize(source.effects).delayMs;
+      $('assemblyLocalInfo').textContent=`${title(row)} · ${source.label || '人声录音'}`;
+      $('assemblyLocalInherited').textContent=`版本对齐 ${inherited} ms ＋ 本段 ${a.delayMs} ms ＝ ${inherited+a.delayMs} ms（负数提前，正数延后）`;
+    }
+    function openAdjustment(row){
+      if(busy)return;const id=row.enabled?(row.choice==='auto'?row.autoId:row.choice):null;if(!id)return;
+      editing={row,id};revision++;clearAudio();
+      $('assemblyLocalPlayer').append($('assemblyPlayer'));adjustmentFields();
+      $('assemblyEditorMessage').textContent='只调整此区间的当前版本；原始版本和其他区间保持不变。';
+      if(adjustDialog.showModal)adjustDialog.showModal();else adjustDialog.open=true;
+    }
+    function closeAdjustment(){
+      if(!editing)return;
+      const row=editing.row;editing=null;revision++;busy=false;clearAudio();
+      $('assemblyPlayerHome').append($('assemblyPlayer'));
+      if(adjustDialog.close)adjustDialog.close();else adjustDialog.open=false;
+      update();row.adjust?.focus();
+    }
+    function saveAdjustment(){
+      if(!editing || busy)return;
+      const ids=['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut'];
+      if(ids.some(id=>$(id).value==='' || !Number.isFinite(Number($(id).value)))){$('assemblyEditorMessage').textContent='请输入有效的微调数值。';return;}
+      const a=env.EchoAudioExport.segmentAdjustment({delayMs:Number($('assemblyLocalDelay').value),volume:Number($('assemblyLocalVolume').value)/100,fadeInSeconds:Number($('assemblyLocalFadeIn').value),fadeOutSeconds:Number($('assemblyLocalFadeOut').value)});
+      const {row,id}=editing;a.fadeInSeconds=Math.min(a.fadeInSeconds,row.end-row.start);a.fadeOutSeconds=Math.min(a.fadeOutSeconds,row.end-row.start);row.adjustments=row.adjustments.filter(a=>a.takeId!==id);
+      if(env.EchoAudioExport.adjusted(a))row.adjustments.push({takeId:id,...a});
+      changed();adjustmentFields();$('assemblyEditorMessage').textContent='本段微调已保存，请重新试听确认；完整试听与导出使用相同设置。';
+    }
+    for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut'])$(id).onchange=saveAdjustment;
+    for(const [id,step] of [['assemblyLocalEarlier',-10],['assemblyLocalLater',10]])$(id).onclick=()=>{if(busy || !editing)return;$('assemblyLocalDelay').value=Number($('assemblyLocalDelay').value)+step;saveAdjustment();};
+    $('assemblyLocalReset').onclick=()=>{if(!editing || busy)return;const {row,id}=editing;row.adjustments=row.adjustments.filter(a=>a.takeId!==id);changed();adjustmentFields();};
+    $('assemblyLocalPreview').onclick=()=>editing && render('preview',editing.row);
+    $('assemblyLocalContext').onclick=()=>editing && render('preview',editing.row,null,true);
+    $('closeAssemblyAdjust').onclick=closeAdjustment;
+    adjustDialog.oncancel=event=>{event.preventDefault();closeAdjustment();};
+    $('assemblyLocalCancel').onclick=()=>$('assemblyCancelRender').onclick();
     $('closeAssembly').onclick=close;
     dialog.oncancel=event=>{event.preventDefault();close();};
     $('assemblyPreview').onclick=()=>render('preview');$('assemblyDownload').onclick=()=>render('download');
@@ -163,7 +225,7 @@
     for(const id of ['assemblyScope','assemblyStart','assemblyEnd'])$(id).onchange=()=>{
       if(busy)return;revision++;clearAudio();$('assemblyEditorMessage').textContent='导出范围已更新，请重新试听。';update();
     };
-    $('assemblyReset').onclick=()=>{if(busy)return;rows=buildRows(takes,duration,[],env.EchoAudioExport);clearAudio();revision++;draw();onChange(choices(rows));$('assemblyEditorMessage').textContent='已恢复自动选择最新版本。';};
+    $('assemblyReset').onclick=()=>{if(busy)return;for(const row of rows){row.choice=row.autoId?'auto':row.candidates[0]?.id || 'auto';row.enabled=!!row.autoId;}changed();$('assemblyEditorMessage').textContent='已恢复自动选择最新版本。';};
     $('assemblyCancelRender').onclick=()=>{revision++;busy=false;clearAudio();update();$('assemblyEditorMessage').textContent='已取消生成，选择仍保留。';};
     return {open,close,isOpen};
   }

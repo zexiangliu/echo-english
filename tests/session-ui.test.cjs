@@ -2789,3 +2789,65 @@ test('recording versions can be starred without switching versions, and assembly
   assert.equal(nodes.get('starTake').attrs['aria-pressed'],'false');
   (await storage.ready).close();
 });
+
+test('assembly adjustments are scoped to interval and candidate, persisted, and shared by preview and export',async()=>{
+  const storage=createStorage(new IDBFactory()),requests=[];
+  const base={videoId:'video',kind:'song',capture:'vocal',speed:1,blob:new Blob(['voice'])};
+  await storage.saveTake({...base,id:'A',cueKey:'A',label:'A',start:0,end:10,createdAt:1,effects:{delayMs:40}});
+  await storage.saveTake({...base,id:'B',cueKey:'B',label:'B',start:8,end:15,createdAt:2});
+  const {nodes}=await mount(storage,{video:{duration:15,pause(){}},globals:{setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?0:ms),EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['cut']),gaps:[]};}}}});
+  await nodes.get('assembleSong').onclick();
+  let rows=nodes.get('assemblyEditorList').children;
+  const overlap=rows[1],candidates=overlap.children[1].children;
+  overlap.children[2].children[1].onclick();
+  assert.equal(nodes.get('assemblyAdjustDialog').open,true);
+  assert.equal(nodes.get('assemblyLocalDelay').value,0);
+  nodes.get('assemblyLocalDelay').value='-30';nodes.get('assemblyLocalDelay').onchange();
+  nodes.get('assemblyLocalVolume').value='120';nodes.get('assemblyLocalVolume').onchange();
+  nodes.get('assemblyLocalFadeIn').value='0.1';nodes.get('assemblyLocalFadeIn').onchange();
+  assert.match(overlap.children[2].children[0].textContent,/提前 30 ms.*120%.*淡入/);
+  await nodes.get('assemblyLocalPreview').onclick();
+  assert.equal(requests.at(-1).origin,8);assert.equal(requests.at(-1).duration,2);
+  assert.equal(requests.at(-1).selection[0].adjustment.delayMs,-30);
+  await nodes.get('assemblyLocalContext').onclick();
+  assert.equal(requests.at(-1).origin,6);assert.equal(requests.at(-1).duration,6);
+  assert.deepEqual(requests.at(-1).selection.map(s=>[s.start,s.end,s.takeId]),[[6,8,'A'],[8,10,'B'],[10,12,'B']]);
+  assert.equal(requests.at(-1).selection[0].adjustment,undefined);
+  assert.equal(requests.at(-1).selection[2].adjustment,undefined);
+  nodes.get('closeAssemblyAdjust').onclick();assert.equal(nodes.get('assemblyAdjustDialog').open,false);
+  candidates[1].children[0].onclick();overlap.children[2].children[1].onclick();
+  assert.equal(nodes.get('assemblyLocalDelay').value,0);assert.match(nodes.get('assemblyLocalInherited').textContent,/版本对齐 40 ms/);
+  nodes.get('assemblyLocalLater').onclick();assert.equal(nodes.get('assemblyLocalDelay').value,10);
+  nodes.get('closeAssemblyAdjust').onclick();candidates[0].children[0].onclick();overlap.children[2].children[1].onclick();
+  assert.equal(nodes.get('assemblyLocalDelay').value,-30);assert.equal(nodes.get('assemblyLocalVolume').value,120);
+  nodes.get('closeAssemblyAdjust').onclick();
+  await nodes.get('assemblyPreview').onclick();const full=requests.at(-1);
+  await nodes.get('assemblyDownload').onclick();assert.deepEqual(requests.at(-1).selection,full.selection);
+  await waitUntil(()=>nodes.get('assemblyEditorMessage').textContent.includes('下载'));
+  nodes.get('closeAssembly').onclick();await nodes.get('assembleSong').onclick();
+  rows=nodes.get('assemblyEditorList').children;rows[1].children[2].children[1].onclick();assert.equal(nodes.get('assemblyLocalDelay').value,-30);
+  nodes.get('assemblyLocalReset').onclick();assert.equal(nodes.get('assemblyLocalDelay').value,0);
+  nodes.get('closeAssemblyAdjust').onclick();
+  nodes.get('assemblyReset').onclick();
+  rows[1].children[1].children[1].children[0].onclick();rows[1].children[2].children[1].onclick();
+  assert.equal(nodes.get('assemblyLocalDelay').value,10,'restoring latest does not erase candidate-specific adjustments');
+  nodes.get('closeAssembly').onclick();assert.equal(nodes.get('assemblyAdjustDialog').open,false);
+  assert.deepEqual((await storage.listTakes('video')).find(t=>t.id==='A').effects,{delayMs:40});
+  const session=await storage.getSession('video');assert.equal(session.assemblyChoices[1].adjustments[0].takeId,'A');
+  (await storage.ready).close();
+});
+
+
+test('closing assembly adjustment during preparation cancels its result and keeps later preview usable',async()=>{
+  const storage=createStorage(new IDBFactory());let pending;
+  await storage.saveTake({id:'A',videoId:'video',kind:'song',capture:'vocal',cueKey:'A',label:'A',start:0,end:10,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video:{duration:10,pause(){}},globals:{EchoAudioExport:{...require('../extension/audio-export.js'),render:options=>new Promise(resolve=>{pending={options,resolve};})}}});
+  await nodes.get('assembleSong').onclick();nodes.get('assemblyEditorList').children[0].children[2].children[1].onclick();
+  const first=nodes.get('assemblyLocalPreview').onclick();assert.equal(nodes.get('assemblyLocalDelay').disabled,true);
+  nodes.get('closeAssemblyAdjust').onclick();assert.equal(pending.options.active(),false);
+  pending.resolve({blob:new Blob(['obsolete'])});await first;assert.equal(nodes.get('assemblyAudio').hidden,true);
+  assert.equal(nodes.get('assemblyPreview').disabled,false);
+  const second=nodes.get('assemblyPreview').onclick();pending.resolve({blob:new Blob(['current'])});await second;
+  assert.equal(nodes.get('assemblyAudio').hidden,false);assert.match(nodes.get('assemblyAudioLabel').textContent,/整首拼接/);
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});

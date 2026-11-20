@@ -34,3 +34,23 @@ test('custom export clips selected versions at both boundaries without changing 
   assert.equal(plan.duration,9);assert.equal(plan.segments[0].start,0);assert.equal(plan.segments.at(-1).end,9);
   for(const [start,end] of [[-1,5],[4,4],[5,4],[0,21],[NaN,10]])assert.throws(()=>rangeSelection(rows,20,start,end),/起止时间/);
 });
+
+
+test('local edits persist per interval and per candidate without modifying original version effects',()=>{
+  const {choices,rangeSelection}=require('../extension/assembly.js');
+  const takes=[voice('a',0,10,1,{effects:{delayMs:80}}),voice('b',4,6,2)];
+  const rows=buildRows(takes,10,[],api);
+  rows[1].choice='a';rows[1].adjustments=[{takeId:'a',delayMs:-20,volume:1.2,fadeInSeconds:.1,fadeOutSeconds:.2},{takeId:'b',delayMs:30,volume:.8,fadeInSeconds:0,fadeOutSeconds:0}];
+  const saved=choices(rows),restored=buildRows(takes,10,JSON.parse(JSON.stringify(saved)),api);
+  assert.deepEqual(choices(restored),saved);
+  assert.equal(selections(restored)[1].adjustment.delayMs,-20);
+  restored[1].choice='b';assert.equal(selections(restored)[1].adjustment.delayMs,30);
+  restored[1].choice='a';
+  const clipped=rangeSelection(restored,10,5,5.5)[0];
+  assert.equal(clipped.adjustmentStart,4);assert.equal(clipped.adjustmentEnd,6);
+  assert.equal(clipped.start,5);assert.equal(clipped.end,5.5);
+  assert.equal(takes[0].effects.delayMs,80);assert.equal(takes[0].adjustment,undefined);
+  assert.equal(selections(restored)[0].adjustment,undefined);
+  const deleted=buildRows(takes.filter(t=>t.id!=='b'),10,saved,api);
+  assert(deleted.every(row=>row.adjustments.every(a=>a.takeId!=='b')));
+});

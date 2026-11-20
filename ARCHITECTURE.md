@@ -11,7 +11,7 @@
 | `karaoke/bandit_compat.py` | Intel Mac 旧版 Torch 的局部 eager 构造适配；不修改全局 Torch |
 | `karaoke/bandit.py` | BandIt 子进程、共用模型加载与流式窗口拼接 |
 | `extension/content.js` | 连接页面、媒体和存储；管理当前视频、练习流程和界面事件 |
-| `extension/assembly.js` | 独立拼接弹窗；拆分重叠区间，管理手动版本选择、试听、取消、Blob URL 生命周期与选择持久化回调 |
+| `extension/assembly.js` | 独立拼接弹窗；拆分重叠区间，管理手动版本选择、按区间与候选保存的局部微调、衔接试听、取消、Blob URL 生命周期与选择持久化回调 |
 | `extension/selection.js` | 纯练习领域规则：三种范围校验、字幕身份与录音版本编号、标签、旧范围设置的兼容读取；不读写 DOM、不控制媒体 |
 | `extension/recording.js` | 单次录音会话：申请麦克风、准备增益和监听、创建编码器、收集音频、缓冲暂停与恢复、实时音量，以及取消和资源释放；通过回调提交结果 |
 | `extension/microphone.js` | 输入设备枚举与采集、固定增益及耳返分支、编码配置、PCM 能力检测、采集参数与详情格式化 |
@@ -22,7 +22,7 @@
 | `extension/reference-playback.js` | 原曲／原声试听的范围、跳转、循环、终点与超时；不处理字幕选择、页面或持久化 |
 | `extension/practice.js` | 循环、自动跟读、录音连播顺序、字幕跟随等流程和纯函数 |
 | `extension/karaoke.js` | 伴奏覆盖范围、服务状态格式化、耳机监听、演唱回放伴奏同步与 Web Audio 音量 |
-| `extension/audio-export.js` | 分段取舍、时间轴对齐、人声与伴奏混合、WAV 导出 |
+| `extension/audio-export.js` | 分段取舍、版本与区间对齐叠加、局部人声音量与边界淡入淡出、全局混响、人声与伴奏混合、WAV 导出 |
 | `extension/storage.js` | IndexedDB 迁移、练习会话、录音版本与伴奏缓存；跨视频音频体积统计、分类型清理 |
 | `extension/library.js` | 独立练习库弹窗：最近视频、搜索、缓存用量、清理确认及关闭生命周期 |
 | `extension/caption-tracks.js` | 字幕轨道元数据、页面同源请求、JSON3 时间轴解析和当前轨道查询客户端 |
