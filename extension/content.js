@@ -285,13 +285,14 @@
           const appliedVideoId=videoId;
           loadedCaptionSource='手动编辑的字幕';renderCaptionSources();
           if(next.length<2 && isParagraph()){$('practiceScope').value='clip';scopePreferences[activity]='clip';}
-          displayCues(next);showPage('transcript');
+          displayCues(next);
           if(await saveProgress()===false)throw Error('字幕已应用，但主界面保存失败。请先导出字幕保留。');
           if(appliedVideoId!==videoId)return;
+          showPage('practice');
           status(`已载入 ${next.length} 句编辑后的字幕；已有录音与录制时间保留。`);
         },
         onExport:(text,format)=>downloadAudio(new Blob([text],{type:format==='vtt'?'text/vtt;charset=utf-8':'application/x-subrip;charset=utf-8'}),EchoAudioExport.filename({title:currentVideoTitle(),videoId,kind:'subtitles',extension:format})),
-        onClose:()=>{controls();updateCaption();$('openSubtitleEditor').focus();}
+        onClose:()=>{controls();updateCaption();$(currentPage==='practice'?(cues.length?'record':'createLyrics'):'openSubtitleEditor').focus();}
       });
       editorVideoId=id;subtitleEditor.open({videoId:id,video:v,cues,draft:saved?.draft});
     }catch(error){status(error.message || '编辑器无法打开，请重试。');}
@@ -299,6 +300,7 @@
   $('openSubtitleEditor').onclick=$('createLyrics').onclick=openSubtitleEditor;
   $('practiceTools').onclick=()=>{if(mode==='idle')settings.open('practice','practiceTools');};
   $('settingsStop').onclick=()=>stop();
+  $('backingReturnPractice').onclick=()=>{settings.close();showPage('practice',true);};
   $('practiceSettings').onclick=()=>{if(mode==='idle')settings.open('microphone','practiceSettings');};
   $('captionSettings').onclick=()=>{if(mode==='idle')settings.open('captions','captionSettings');};
   const clipDialog=$('clipDialog');
@@ -356,7 +358,7 @@
       echoPreferences[activity]=p.echo;gainPreferences[activity]=p.gain;sidetoneEnabled=p.sidetone;recordingQuality=p.quality;
       refreshSetupSettings();showPage('practice');
       const message='推荐设置已应用。可在下方直接试音；选段和伴奏请在主界面按需调整。';
-      status(message);return {message,nextLabel:!cues.length?'准备字幕 →':null};
+      status(message);return {message,nextLabel:!cues.length?'准备字幕':'返回练习'};
     },
     onUndo:()=>{
       if(mode!=='idle' || !setupUndo || setupUndo.videoId!==videoId)return false;
@@ -366,7 +368,7 @@
       sidetoneEnabled=previous.sidetone;recordingQuality=previous.quality;
       refreshSetupSettings();status('已撤销本次推荐设置。');return true;
     },
-    onContinue:()=>{if(mode==='idle' && !cues.length)settings.open('captions','openPreparation');}
+    onContinue:()=>{if(mode==='idle')showPage(cues.length?'practice':'transcript',true);}
 
   });
   $('openPreparation').onclick=()=>{if(mode==='idle')tools.open('setup');};
@@ -536,7 +538,7 @@
     $('generationParagraphOption').disabled=cues.length<2;
     $('generationParagraphHint').hidden=cues.length>=2;
     $('generationRangeHint').textContent=generated.error?.message || `${recordingTime(generated.value.start)}–${recordingTime(generated.value.end)} · ${Math.round(generated.value.end-generated.value.start)} 秒`;
-    $('generationReadiness').textContent=karaokeIssue || (mode==='separating'?`正在生成${name}…`:generationReady?`${name}已就绪，可试听或关闭后开始录音。`:serviceState==='offline'?'本机服务未连接，请打开「伴奏与背景音设置」查看启动说明并重新检测。':`此范围尚未准备${name}。`);
+    $('generationReadiness').textContent=karaokeIssue || (mode==='separating'?`正在生成${name}…`:generationReady?`${name}已就绪，可试听，或点击「返回练习」开始录音。`:serviceState==='offline'?'本机服务未连接，请按本页说明启动服务，再点击「重新检测」。':`此范围尚未准备${name}。`);
     $('generationProgress').hidden=mode!=='separating';$('generationStage').hidden=mode!=='separating';
     $('generationWholeOption').textContent=isSinging()?'整首歌曲':'整段视频';
     $('generationCurrentOption').textContent='当前练习范围';
@@ -1124,17 +1126,26 @@
       row.append(button);list.append(row);
     });
     list.scrollTop=scroll;
-    $('versionChoices').replaceChildren();$('versionChoices').hidden=true;
+    const choices=$('versionChoices'),versionScroll=choices.scrollLeft;
+    choices.replaceChildren();choices.hidden=true;
+    let selectedVersion=null;
     if(take){
       const versions=videoHistory.filter(t=>t.cueKey===take.cueKey).sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
       $('versionChoices').hidden=versions.length<2;
       versions.forEach((value,i)=>{
         const button=document.createElement('button');button.className='version-choice';button.textContent=`${value.starred?'★ ':''}版本 ${i+1}${i===versions.length-1?' · 最新':''}`;
         button.title=new Date(value.createdAt).toLocaleString('zh-CN');button.setAttribute('aria-pressed',String(value.id===take.id));
-        button.onclick=guarded(()=>selectRecording(value));$('versionChoices').append(button);
+        button.onclick=guarded(()=>selectRecording(value));choices.append(button);
+        if(value.id===take.id)selectedVersion=button;
       });
     }
     controls();
+    choices.scrollLeft=versionScroll;
+    if(selectedVersion && choices.clientWidth){
+      const left=selectedVersion.offsetLeft,right=left+selectedVersion.offsetWidth;
+      if(left<choices.scrollLeft)choices.scrollLeft=left;
+      else if(right>choices.scrollLeft+choices.clientWidth)choices.scrollLeft=right-choices.clientWidth;
+    }
   }
   function chooseCurrentTake(preferredId) {
     const key=currentCueKey();

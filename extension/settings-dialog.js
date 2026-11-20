@@ -10,6 +10,7 @@
       if(!tabs[section] && section!=='backingOptions')return;current=section;
       const options=section==='backingOptions',backing=section==='backing';
       $('settings-backingOptions').hidden=!options;$('settingsTabs').hidden=options;
+      $('backingReturnPractice').hidden=!backing;
       $('settingsTitle').textContent=options?'模型与音质':backing?'伴奏／背景音':'设置';
       $('settingsFooterNote').textContent=backing?'已生成音频自动保存在本机，可供多个练习片段复用。':'设置自动保存。';
       for(const [name,id] of Object.entries(tabs)){

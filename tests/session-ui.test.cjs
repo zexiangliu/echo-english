@@ -2055,7 +2055,7 @@ test('setup wizard preserves per-activity backing and scope choices and the curr
   nodes.get('wizardApply').onclick();assert.equal(nodes.get('recordingPlayback').value,'backing');
   assert.equal(nodes.get('practiceScope').value,'clip');assert.equal(Number(nodes.get('start').value),2);assert.equal(Number(nodes.get('end').value),4);
   assert.equal(nodes.get('leadInMode').value,'seconds');assert.equal(Number(nodes.get('leadInSeconds').value),7);
-  assert.equal(nodes.get('wizardContinue').hidden,true);
+  assert.equal(nodes.get('wizardContinue').hidden,false);
   nodes.get('wizardActivity').value='sing';nodes.get('wizardActivity').onchange();nodes.get('wizardApply').onclick();
   assert.equal(nodes.get('recordingPlayback').value,'silent');assert.equal(nodes.get('practiceScope').value,'clip');
   assert.equal(Number(nodes.get('start').value),2);assert.equal(Number(nodes.get('end').value),4);
@@ -2075,14 +2075,17 @@ test('setup wizard checks lossless support and keeps undo scoped to the applicat
   await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });
 
-test('ready setup recommendations use the inline audition area without a duplicate navigation button',async()=>{
+test('ready setup recommendations offer a return to practice while keeping audition inline',async()=>{
   const storage=createStorage(new IDBFactory());
   await storage.saveSession({videoId:'video',cues:[{start:0,end:5,text:'First'}],index:0,start:0,end:5,speed:'1'});
   const {nodes}=await mount(storage);
   nodes.get('openPreparation').onclick();nodes.get('wizardApply').onclick();
-  assert.equal(nodes.get('wizardContinue').hidden,true);assert.equal(nodes.get('wizardUndo').hidden,false);
+  assert.equal(nodes.get('wizardContinue').hidden,false);assert.equal(nodes.get('wizardUndo').hidden,false);
   assert.match(nodes.get('wizardMessage').textContent,/下方直接试音/);
   assert.equal(nodes.get('micTestStart').disabled,false);assert.equal(nodes.get('toolsDialog').open,true);
+  assert.equal(nodes.get('wizardContinue').textContent,'返回练习');
+  nodes.get('wizardContinue').onclick();
+  assert.equal(nodes.get('toolsDialog').open,false);assert.equal(nodes.get('page-practice').hidden,false);
   await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });
 
@@ -2215,6 +2218,7 @@ test('subtitle editor is initialized on demand, loads drafts and applies stable 
   assert.equal(init,0);await nodes.get('openSubtitleEditor').onclick();assert.equal(init,1);assert.equal(opened.draft.cues[0].text,'Draft');
   await config.onApply([{start:1,end:4,text:'Edited',key:'stable-cue'}]);
   const session=await storage.getSession('video');assert.equal(session.cues[0].key,'stable-cue');assert.equal(session.cues[0].start,1);assert.equal((await storage.listTakes('video'))[0].start,0);
+  assert.equal(nodes.get('page-practice').hidden,false);assert.equal(nodes.get('page-transcript').hidden,true);
   assert.match(nodes.get('status').textContent,/已载入 1/);nodes.get('close').onclick();assert.equal(closed,true);
   (await storage.ready).close();
 });
@@ -2970,4 +2974,23 @@ for(const activity of ['speech','sing'])test(`practice ${activity} replay menu s
   nodes.get('tab-recordings').onclick();nodes.get('reviewReplayMode').value='recording';nodes.get('reviewReplayMode').onchange();
   assert.equal(nodes.get('practiceReplayMode').value,'recording');assert.match(nodes.get('reviewReplay').textContent,/回听录音/);
   (await storage.ready).close();
+});
+
+
+test('preparation without captions leads to subtitle import and editing rather than language settings',async()=>{
+  const storage=createStorage(new IDBFactory());const {nodes}=await mount(storage);
+  nodes.get('openPreparation').onclick();nodes.get('wizardApply').onclick();nodes.get('wizardContinue').onclick();
+  assert.equal(nodes.get('toolsDialog').open,false);assert.equal(nodes.get('page-transcript').hidden,false);
+  assert.equal(nodes.get('page-practice').hidden,true);assert.notEqual(nodes.get('settingsDialog').open,true);
+  await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
+});
+
+test('backing generation has an explicit return to practice without starting a recording',async()=>{
+  const storage=createStorage(new IDBFactory());let captures=0;
+  const {nodes}=await mount(storage,{globals:{navigator:{mediaDevices:{async getUserMedia(){captures++;throw Error('unexpected capture');}}}}});
+  nodes.get('backingSettings').onclick();assert.equal(nodes.get('backingReturnPractice').hidden,false);
+  nodes.get('backingReturnPractice').onclick();assert.equal(nodes.get('settingsDialog').open,false);
+  assert.equal(nodes.get('page-practice').hidden,false);assert.equal(captures,0);assert.equal(nodes.get('panel').dataset.mode,'idle');
+  nodes.get('practiceSettings').onclick();assert.equal(nodes.get('backingReturnPractice').hidden,true);
+  await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });
