@@ -2851,3 +2851,26 @@ test('closing assembly adjustment during preparation cancels its result and keep
   assert.equal(nodes.get('assemblyAudio').hidden,false);assert.match(nodes.get('assemblyAudioLabel').textContent,/整首拼接/);
   nodes.get('closeAssembly').onclick();(await storage.ready).close();
 });
+
+
+test('assembly overview navigates inside the list without changing selection or starting playback',async()=>{
+  const storage=createStorage(new IDBFactory());let renders=0;
+  await storage.saveTake({id:'A',videoId:'video',kind:'song',capture:'vocal',cueKey:'A',label:'A',start:2,end:10,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video:{duration:15,pause(){}},globals:{EchoAudioExport:{...require('../extension/audio-export.js'),async render(){renders++;}}}});
+  await nodes.get('assembleSong').onclick();
+  const list=nodes.get('assemblyEditorList'),rows=list.children,positions=[];
+  list.scrollTo=options=>positions.push(options);
+  rows.forEach((row,i)=>row.offsetTop=i*200+8);
+  const overview=nodes.get('assemblyEditorTimeline');
+  assert.equal(overview.children.length,3);
+  assert.match(overview.children[1].attrs['aria-label'],/0:02.0–0:10.0.*A/);
+  const before=rows.map(row=>row.children[0].children[0].children[0].checked);
+  overview.children[1].onclick();assert.deepEqual(positions.at(-1),{top:200,behavior:'smooth'});
+  overview.children[2].onclick();assert.deepEqual(positions.at(-1),{top:400,behavior:'smooth'});
+  assert.deepEqual(rows.map(row=>row.children[0].children[0].children[0].checked),before);
+  assert.equal(renders,0);assert.equal(nodes.get('assemblyAudio').hidden,true);
+  nodes.get('assemblyScope').value='custom';nodes.get('assemblyStart').value='3';nodes.get('assemblyEnd').value='8';nodes.get('assemblyScope').onchange();
+  assert.equal(overview.children.length,1);assert.match(overview.children[0].attrs['aria-label'],/0:03.0–0:08.0/);
+  overview.children[0].onclick();assert.equal(positions.at(-1).top,200);
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});

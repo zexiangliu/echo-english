@@ -84,7 +84,15 @@
         }
         if(!inside)continue;
         const source=row.candidates.find(take=>take.id===id);
-        const bar=element('span','');bar.style.flex=String(Math.min(row.end,range.end)-Math.max(row.start,range.start));bar.className=id?'selected':'';bar.title=`${title(row)} · ${source?.label || '空白'}`;$('assemblyEditorTimeline').append(bar);
+        const bar=element('button','');bar.type='button';bar.style.flex=String(Math.min(row.end,range.end)-Math.max(row.start,range.start));bar.className=id?'selected':'';
+        bar.title=`${title({start:Math.max(row.start,range.start),end:Math.min(row.end,range.end)})} · ${source?.label || '空白'} · 点击定位`;
+        bar.setAttribute('aria-label',`定位到 ${bar.title.replace(' · 点击定位','')}`);
+        bar.onclick=()=>{
+          const list=$('assemblyEditorList'),reduced=env.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+          list.scrollTo({top:Math.max(0,row.card.offsetTop-8),behavior:reduced?'instant':'smooth'});
+          if(!reduced)row.card.animate?.([{outline:'2px solid #b3eedb',outlineOffset:'3px'},{outline:'2px solid transparent',outlineOffset:'3px'}],{duration:1800});
+        };
+        $('assemblyEditorTimeline').append(bar);
       }
       for(const id of ['assemblyType','assemblyReset','assemblyScope','assemblyStart','assemblyEnd'])$(id).disabled=busy;
       for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0 || !!error;
