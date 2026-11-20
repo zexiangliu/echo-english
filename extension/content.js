@@ -591,7 +591,7 @@
     $('mixSummary').textContent=`${target.withBacking?'总音量':'人声'} ${Math.round(vocal*100)}%${hasBackground?` · ${name}${$('replayWithBacking').checked?' '+Math.round(backing*100)+'%':'关'}`:''}`;
     $('mixHint').textContent=target.withBacking?'旧版混合录音只能调整总音量，无法分别调节人声和伴奏。':hasBackground?
       ready?'混合下载沿用此比例，原始人声不变。':`暂无可用${name}，当前仅回听人声。`:'只影响回听，原始录音不变。';
-    if(replayOriginal)$('mixHint').textContent='同时对比：原声音量在进度条下调节，此处调整录音人声音量；不额外叠加伴奏。';
+    if(replayOriginal)$('mixHint').textContent='原声与录音一起播放：原声音量在进度条下调节，此处调整录音人声音量；不额外叠加伴奏。';
     if(!editable)$('mixHint').textContent='当前未播放录音；此音量只用于录音回听及混合导出。';
     if(replayTake && replayVoiceMax===1)$('mixHint').textContent+=' 当前人声音量最高为 100%。';
   }
@@ -656,8 +656,8 @@
     $('record').title='使用当前范围以 1× 原速录音，保留之前的版本。';
     $('original').textContent=singing?'▶ 听原曲':'▶ 听原声';
     const replayMode=$('practiceReplayMode').value;
-    $('replay').textContent=replayMode==='simultaneous'?'⇄ 同时对比':replayMode==='sequential'?'⇄ 先后对比':singing?'▷ 回听最近演唱':'▷ 回听录音';
-    $('practiceReplayMode').title=`${replayMode==='simultaneous'?'同时对比':replayMode==='sequential'?'先后对比':'仅回听录音'} · 切换回听方式`;
+    $('replay').textContent=replayMode==='simultaneous'?'▷ 原声＋录音':replayMode==='sequential'?'▷ 原声 → 录音':singing?'▷ 回听最近演唱':'▷ 回听录音';
+    $('practiceReplayMode').title=`${replayMode==='simultaneous'?'原声与录音一起听':replayMode==='sequential'?'先听原声，再听录音':'仅回听录音'} · 切换回听方式`;
     $('loop').textContent=whole?(singing?'↻ 循环听整首':'↻ 循环听整段'):'↻ 循环听选段';
     $('autoPractice').textContent=paragraph?'▶ 自动练当前段落':whole?(singing?'▶ 自动练整首':'▶ 自动练整段'):singing?'▶ 自动练当前片段':'▶ 自动跟读';
   }
@@ -735,7 +735,7 @@
     $('originalLoopControl').hidden=mode!=='original';
     $('stop').textContent=mode==='lead-in'?'■ 取消准备':mode==='recording'?'■ 结束录音':mode==='saving'?'保存中…':'■ 停止';
     $('reviewReplay').disabled = (busy && mode!=='replay') || !take;
-    $('reviewReplay').textContent=mode==='replay'?'■ 停止回放':replayChoice==='simultaneous'?'⇄ 同时对比':replayChoice==='sequential'?'⇄ 先后对比':'▷ 回放录音';
+    $('reviewReplay').textContent=mode==='replay'?'■ 停止回放':replayChoice==='simultaneous'?'▷ 原声＋录音':replayChoice==='sequential'?'▷ 原声 → 录音':'▷ 回放录音';
     $('reviewReplayMode').disabled=busy || !take;
     $('reviewReplayMode').title=$('practiceReplayMode').title;
     $('reviewReplay').setAttribute('aria-pressed',String(mode==='replay'));
@@ -1772,7 +1772,7 @@
       await accompaniment?.sync();await originalFollower?.sync();
       if (token !== generation) return;
       const duration=()=>Number.isFinite(a.duration) && a.duration>0?a.duration:((t.capturedEnd ?? t.end)-t.start)/t.speed+(t.vocalOffset || 0);
-      transport.show({label:withOriginal?'原声＋录音 · 同时对比':'录音回放', position: () => a.currentTime, duration, seekTo: async elapsed => {
+      transport.show({label:withOriginal?'原声＋录音':'录音回放', position: () => a.currentTime, duration, seekTo: async elapsed => {
         a.currentTime=elapsed;
         v.currentTime=videoPosition();
         await accompaniment?.sync();
@@ -1782,7 +1782,7 @@
         if(!playbackActions.paused && v.currentTime<t.end){if(originalFollower)await originalFollower.sync();else await v.play();}
       }});
       renderMixControls();
-      if(withOriginal)status('正在同时对比原声与录音，可分别调整音量。');
+      if(withOriginal)status('正在同时播放原声与录音，可分别调整音量。');
       playback.onCancel(resolvePlayback);
       if(!ended){
         if(originalFollower)await originalFollower.sync();else await v.play();
@@ -1807,7 +1807,7 @@
       accompaniment?.dispose();if(replayMonitor===accompaniment)replayMonitor=null;
       voiceOutput?.dispose();if(replayVoiceOutput===voiceOutput)replayVoiceOutput=null;
     }
-    if (token === generation) { if (keepBusy) { cancelPlayback(); restoreVideo(); mode = 'practice'; controls(); } else {finish();status(withOriginal?'同时对比结束。':'回听结束。');} }
+    if (token === generation) { if (keepBusy) { cancelPlayback(); restoreVideo(); mode = 'practice'; controls(); } else {finish();status(withOriginal?'原声与录音播放结束。':'回听结束。');} }
   }
   async function analyzeTake(value) {
     const request = ++analysisRequest;
@@ -2170,7 +2170,7 @@
     const simultaneous=comparison==='simultaneous',token=++generation;
     mode='compare';controls();
     if(simultaneous){
-      status('正在准备原声与录音同时对比…');
+      status('正在准备原声与录音一起播放…');
       await replay(token,false,{withOriginal:true});return;
     }
     status('对比 1/2：原声');await original(take,token,false,EchoBackingPitch.normalize(take.backingPitch));

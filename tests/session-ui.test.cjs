@@ -2932,7 +2932,7 @@ for(const shifted of [false,true])test(`simultaneous comparison ${shifted?'uses 
   const pending=[...frames.values()];frames.clear();for(const fn of pending)fn();await Promise.resolve();
   assert(Math.abs(video.currentTime-5.2)<.001);assert.equal(video.paused,false);
   assert.equal(nodes.get('originalVolumeControl').hidden,false);assert.equal(nodes.get('replayMusicOption').hidden,true);assert.equal(backings,0);
-  assert.match(nodes.get('transportLabel').textContent,/同时对比/);
+  assert.match(nodes.get('transportLabel').textContent,/原声＋录音/);
   nodes.get('originalVolume').value='.25';nodes.get('originalVolume').oninput();assert.equal(video.volume,.25);
   nodes.get('replayVocalVolume').value='1.3';nodes.get('replayVocalVolume').oninput();assert.equal(vocalGain,1.3);
   await nodes.get('pausePlayback').onclick();assert.equal(video.paused,true);assert.equal(sound.paused,true);
@@ -2962,7 +2962,7 @@ for(const activity of ['speech','sing'])test(`practice ${activity} replay menu s
   const {nodes}=await mount(storage,{video,globals:{Audio}});
   assert.equal(nodes.get('replay').disabled,false);assert.equal(nodes.get('practiceReplayMode').value,'recording');
   nodes.get('practiceReplayMode').value='sequential';nodes.get('practiceReplayMode').onchange();
-  assert.equal(nodes.get('reviewReplayMode').value,'sequential');assert.match(nodes.get('replay').textContent,/先后对比/);
+  assert.equal(nodes.get('reviewReplayMode').value,'sequential');assert.match(nodes.get('replay').textContent,/原声 → 录音/);
   const comparing=nodes.get('replay').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(sound,undefined);
   video.advance(10);await waitUntil(()=>sound?.paused===false);sound.onended();await comparing;
   assert.equal(nodes.get('page-practice').hidden,false);assert.equal(nodes.get('panel').dataset.mode,'idle');
