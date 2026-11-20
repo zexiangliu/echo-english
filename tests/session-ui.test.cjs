@@ -1401,8 +1401,8 @@ test('assembly editor auditions an older version, excludes ranges, persists choi
     EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['selected-preview']),gaps:[]};}}}};
   const {nodes,downloads}=await mount(storage,overrides);
   await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyDialog').open,true);assert.equal(requests.length,0);
-  const row=nodes.get('assemblyEditorList').children[0],select=row.children[1],check=row.children[0].children[0].children[0];
-  select.value='older';select.onchange();await row.children[0].children[1].onclick();
+  const row=nodes.get('assemblyEditorList').children[0],older=row.children[1].children[1],check=row.children[0].children[0].children[0];
+  older.children[0].onclick();await older.children[1].onclick();
   assert.equal(requests[0].duration,10);assert.equal(requests[0].selection[0].takeId,'older');assert.equal(nodes.get('assemblyAudio').hidden,false);
   check.checked=false;check.onchange();assert.equal(nodes.get('assemblyDownload').disabled,true);assert.equal(nodes.get('assemblyAudio').hidden,true);
   check.checked=true;check.onchange();await nodes.get('assemblyPreview').onclick();await nodes.get('assemblyDownload').onclick();
@@ -1410,7 +1410,7 @@ test('assembly editor auditions an older version, excludes ranges, persists choi
   assert.deepEqual(requests[2].selection,requests[1].selection);assert.equal(downloads.length,1);
   nodes.get('closeAssembly').onclick();assert.equal(nodes.get('assemblyAudio').hidden,true);
   const restored=(await mount(storage,overrides)).nodes;await restored.get('assembleSong').onclick();
-  assert.equal(restored.get('assemblyEditorList').children[0].children[1].value,'older');restored.get('closeAssembly').onclick();
+  assert.equal(restored.get('assemblyEditorList').children[0].children[1].children[1].children[0].getAttribute('aria-pressed'),'true');restored.get('closeAssembly').onclick();
   (await storage.ready).close();
 });
 
@@ -2687,12 +2687,12 @@ test('assembly labels recorded keys, blocks mixed-key export and recovers after 
   await nodes.get('assembleSong').onclick();
   assert.equal(nodes.get('assemblyPreview').disabled,true);assert.equal(nodes.get('assemblyDownload').disabled,true);
   assert.match(nodes.get('assemblyRangeHint').textContent,/调性不一致/);
-  const second=nodes.get('assemblyEditorList').children[1],select=second.children[1];
-  assert.ok(select.children.some(option=>/原调/.test(option.textContent)));assert.ok(select.children.some(option=>/\+3 半音/.test(option.textContent)));
+  const second=nodes.get('assemblyEditorList').children[1],candidates=second.children[1].children;
+  assert.ok(candidates.some(option=>/原调/.test(option.children[0].children[1].textContent)));assert.ok(candidates.some(option=>/\+3 半音/.test(option.children[0].children[1].textContent)));
   await nodes.get('assemblyPreview').onclick();assert.equal(renders,0);
-  select.value='old';select.onchange();assert.equal(nodes.get('assemblyDownload').disabled,false);assert.match(nodes.get('assemblyEditorInfo').textContent,/\+3 半音/);
+  candidates[1].children[0].onclick();assert.equal(nodes.get('assemblyDownload').disabled,false);assert.match(nodes.get('assemblyEditorInfo').textContent,/\+3 半音/);
   await nodes.get('assemblyPreview').onclick();assert.equal(renders,1);
-  select.value='new';select.onchange();assert.equal(nodes.get('assemblyPreview').disabled,true);
+  candidates[0].children[0].onclick();assert.equal(nodes.get('assemblyPreview').disabled,true);
   nodes.get('assemblyScope').value='custom';nodes.get('assemblyStart').value='0';nodes.get('assemblyEnd').value='5';nodes.get('assemblyScope').onchange();
   assert.equal(nodes.get('assemblyPreview').disabled,false);await nodes.get('assemblyPreview').onclick();assert.equal(renders,2);
   nodes.get('closeAssembly').onclick();(await storage.ready).close();
@@ -2737,4 +2737,29 @@ test('original comparison follows the selected recording key rather than the lat
   nodes.get('tab-recordings').onclick();await nodes.get('historyList').children[0].children[0].onclick();
   const comparing=nodes.get('compare').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(key,3);
   nodes.get('stop').onclick();await comparing;(await storage.ready).close();
+});
+
+test('vertical assembly lists every overlap candidate, auditions without selecting and exports the chosen interval cuts',async()=>{
+  const storage=createStorage(new IDBFactory()),requests=[];
+  const base={videoId:'video',kind:'song',capture:'vocal',speed:1,blob:new Blob(['voice'])};
+  await storage.saveTake({...base,id:'A',cueKey:'A',label:'A',start:0,end:10,createdAt:1});
+  await storage.saveTake({...base,id:'B',cueKey:'B',label:'B',start:8,end:15,createdAt:2});
+  const {nodes}=await mount(storage,{video:{duration:15,pause(){}},globals:{setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?0:ms),EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['cut']),gaps:[]};}}}});
+  await nodes.get('assembleSong').onclick();
+  const rows=nodes.get('assemblyEditorList').children;
+  assert.equal(rows.length,3);assert.deepEqual(rows.map(row=>row.children[0].children[0].children[1].textContent),['0:00.0–0:08.0','0:08.0–0:10.0','0:10.0–0:15.0']);
+  assert.deepEqual(rows.map(row=>row.children[1].children.length),[1,2,1]);
+  const [b,a]=rows[1].children[1].children;
+  assert.equal(b.children[0].getAttribute('aria-pressed'),'true');assert.equal(a.children[0].getAttribute('aria-pressed'),'false');
+  await a.children[1].onclick();
+  assert.equal(requests[0].origin,8);assert.equal(requests[0].duration,2);assert.deepEqual(requests[0].selection,[{start:8,end:10,takeId:'A'}]);
+  assert.equal(b.children[0].getAttribute('aria-pressed'),'true');assert.match(nodes.get('assemblyEditorMessage').textContent,/点击.*选用/);
+  a.children[0].onclick();assert.equal(a.children[0].getAttribute('aria-pressed'),'true');assert.equal(b.children[0].getAttribute('aria-pressed'),'false');
+  await nodes.get('assemblyPreview').onclick();await nodes.get('assemblyDownload').onclick();
+  assert.deepEqual(requests[1].selection,[{start:0,end:8,takeId:'A'},{start:8,end:10,takeId:'A'},{start:10,end:15,takeId:'B'}]);
+  assert.deepEqual(requests[2].selection,requests[1].selection);
+  const check=rows[1].children[0].children[0].children[0];check.checked=false;check.onchange();
+  await b.children[1].onclick();assert.deepEqual(requests.at(-1).selection,[{start:8,end:10,takeId:'B'}]);assert.equal(check.checked,false);
+  b.children[0].onclick();assert.equal(check.checked,true);
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
 });

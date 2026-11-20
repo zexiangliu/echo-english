@@ -59,11 +59,16 @@
         if(inside)row.time.textContent=title({start:Math.max(row.start,range.start),end:Math.min(row.end,range.end)});
         const id=row.enabled?(row.choice==='auto'?row.autoId:row.choice):null;
         row.check.checked=!!id;row.check.disabled=busy || !row.candidates.length;
-        row.select.value=row.choice;row.select.disabled=busy || !row.enabled || !row.candidates.length;
-        row.play.disabled=busy || !id;
-        const source=row.candidates.find(t=>t.id===id);
-        row.source.textContent=source?`${source.label || '人声录音'} · ${pitchLabel(source)} · ${new Date(source.createdAt).toLocaleString('zh-CN')}`:row.candidates.length?'不导出此段人声':'尚未录制';
+        row.card.dataset.selected=String(!!id);
+        row.count.textContent=row.candidates.length?`${row.candidates.length} 个可选片段`:'尚未录制 · 人声留空';
+        for(const option of row.options){
+          const selected=option.take.id===id;
+          option.choose.setAttribute('aria-pressed',String(selected));
+          option.choose.disabled=busy;option.play.disabled=busy || !inside;
+          option.badge.textContent=selected?'已选':'选用';
+        }
         if(!inside)continue;
+        const source=row.candidates.find(take=>take.id===id);
         const bar=element('span','');bar.style.flex=String(Math.min(row.end,range.end)-Math.max(row.start,range.start));bar.className=id?'selected':'';bar.title=`${title(row)} · ${source?.label || '空白'}`;$('assemblyEditorTimeline').append(bar);
       }
       for(const id of ['assemblyType','assemblyReset','assemblyScope','assemblyStart','assemblyEnd'])$(id).disabled=busy;
@@ -77,28 +82,37 @@
       for(const row of rows){
         const card=element('article',undefined,'assembly-row'),head=element('div',undefined,'assembly-row-head');
         row.card=card;const label=element('label',undefined,'check');row.check=element('input');row.check.type='checkbox';row.check.setAttribute('aria-label',`导出 ${title(row)} 的人声`);
-        row.time=element('span',title(row));label.append(row.check,row.time);row.play=element('button','▷ 试听','compact');head.append(label,row.play);
-        row.select=element('select');row.select.setAttribute('aria-label',`${title(row)} 的录音版本`);
-        const auto=element('option','自动 · 最新版本');auto.value='auto';auto.disabled=!row.autoId;row.select.append(auto);
-        for(const take of row.candidates){const option=element('option',`${take.label || '录音'} · ${pitchLabel(take)} · ${new Date(take.createdAt).toLocaleTimeString('zh-CN')} · ${take.id===row.autoId?'最新':'其他版本'}`);option.value=take.id;row.select.append(option);}
-        row.source=element('small');card.append(head,row.select,row.source);$('assemblyEditorList').append(card);
+        row.time=element('span',title(row));label.append(row.check,row.time);row.count=element('small');head.append(label,row.count);
+        const candidates=element('div',undefined,'assembly-candidates');candidates.setAttribute('role','group');candidates.setAttribute('aria-label',`${title(row)} 的可选录音`);
+        row.options=[];
+        for(const take of row.candidates){
+          const item=element('div',undefined,'assembly-candidate'),choose=element('button',undefined,'assembly-choice');
+          choose.setAttribute('aria-pressed','false');
+          const heading=element('span',take.label || '人声录音','assembly-choice-title'),badge=element('span','','assembly-choice-badge');
+          const detail=element('span',`原片段 ${title(take)} · ${pitchLabel(take)} · ${new Date(take.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})}${take.id===row.autoId?' · 最新':''}`,'assembly-choice-meta');
+          choose.append(heading,detail,badge);
+          const play=element('button','▷ 试听','compact');play.setAttribute('aria-label',`试听 ${take.label || '人声录音'} 在 ${title(row)} 的部分`);
+          choose.onclick=()=>{if(busy)return;row.choice=take.id;row.enabled=true;changed();};
+          play.onclick=()=>render('preview',row,take.id);
+          item.append(choose,play);candidates.append(item);row.options.push({take,choose,play,badge});
+        }
+        card.append(head,candidates);$('assemblyEditorList').append(card);
         row.check.onchange=()=>{if(busy)return;row.enabled=row.check.checked;if(row.enabled && row.choice==='auto' && !row.autoId)row.choice=row.candidates[0]?.id || 'auto';changed();};
-        row.select.onchange=()=>{if(busy)return;row.choice=row.select.value;changed();};
-        row.play.onclick=()=>render('preview',row);
       }
       update();
     }
-    async function render(action,row=null){
+    async function render(action,row=null,auditionId=null){
       if(busy || !isOpen())return;
       let range;try{range=exportRange();}catch(error){$('assemblyEditorMessage').textContent=error.message;update();return;}
       const origin=row?Math.max(row.start,range.start):range.start,end=row?Math.min(row.end,range.end):range.end;
       if(end<=origin)return;
-      const selected=rangeSelection(row?[row]:rows,duration,origin,end),length=end-origin;
+      const selected=auditionId?[{start:origin,end,takeId:auditionId}]:rangeSelection(row?[row]:rows,duration,origin,end),length=end-origin;
       try{env.EchoAudioExport.selectedPitch(env.EchoAudioExport.selectionPlan(takes,duration,selected).segments);}
       catch(error){$('assemblyEditorMessage').textContent=error.message;return;}
       if(!selected.some(part=>part.takeId)){$('assemblyEditorMessage').textContent='此范围内没有选中的人声，请先选择录音片段。';return;}
       const token=++revision;busy=true;clearAudio();update();
-      const label=origin===0 && end===duration?'整首拼接':`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
+      const audition=auditionId?row.candidates.find(take=>take.id===auditionId):null;
+      const label=audition?`${title({start:origin,end})} · ${audition.label || '人声录音'} · ${pitchLabel(audition)}`:origin===0 && end===duration?'整首拼接':`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
       const active=()=>isOpen() && token===revision;
       try{
         const result=await onRender({selection:selected,origin,duration:length,withMusic:$('assemblyType').value==='mixed',active});
@@ -106,7 +120,7 @@
         if(action==='download'){onDownload(result.blob,{origin,duration:length,partial:origin!==0 || end!==duration});$('assemblyEditorMessage').textContent='已按当前选择开始下载。';}
         else{
           url=urlApi.createObjectURL(result.blob);audio.src=url;audio.hidden=false;audio.load?.();$('assemblyAudioLabel').textContent=`试听：${label}`;
-          $('assemblyEditorMessage').textContent='已生成试听音频，可在播放器中拖动进度。';
+          $('assemblyEditorMessage').textContent=audition?'正在试听此候选片段；点击“选用”才会修改拼接。':'已生成完整拼接，可在播放器中拖动进度。';
           try{await audio.play?.();}catch{if(active())$('assemblyEditorMessage').textContent='试听已准备好，请点击播放器开始播放。';}
         }
       }catch(error){if(active())$('assemblyEditorMessage').textContent=error.message || '拼接失败，请重试。';}
@@ -115,7 +129,7 @@
     function open(options){
       takes=options.takes;duration=options.duration;rows=buildRows(takes,duration,options.choices,env.EchoAudioExport);
       revision++;busy=false;clearAudio();$('assemblyScope').value='whole';$('assemblyStart').value='0';$('assemblyEnd').value=String(duration);$('assemblyStart').max=$('assemblyEnd').max=String(duration);$('assemblyType').value=options.withMusic?'mixed':'vocal';
-      $('assemblyEditorMessage').textContent='勾选要导出的人声，试听后选择版本。重叠录音已按时间边界拆开，每个时段只使用一个版本。';
+      $('assemblyEditorMessage').textContent='沿时间轴逐段试听候选片段，点击选用；重叠区间默认使用最新录音。选好后可完整试听再导出。';
       const skipped=takes.filter(t=>t.kind==='song' && t.capture==='vocal' && !t.withBacking && t.speed!==1).length;
       if(skipped)$('assemblyEditorMessage').textContent+=` ${skipped} 条非 1× 录音未列入选择。`;
       draw();if(dialog.showModal)dialog.showModal();else dialog.open=true;$('assemblyEditorList').scrollTop=0;
