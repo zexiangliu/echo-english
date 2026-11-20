@@ -70,6 +70,7 @@
         row.adjust.hidden=!id;
         const local=env.EchoAudioExport.segmentAdjustment(row.adjustments.find(a=>a.takeId===id));
         row.summary.textContent=env.EchoAudioExport.adjusted(local)?summary(local):'';
+        row.actions.hidden=!row.summary.textContent;
         row.count.textContent=row.candidates.length?`${row.candidates.length} 个可选片段`:'尚未录制 · 人声留空';
         for(const option of row.options){
           const selected=option.take.id===id;
@@ -132,8 +133,9 @@
           };
           item.append(choose,play,star);candidates.append(item);row.options.push({take,choose,play,badge,heading,star});
         }
-        const actions=element('div',undefined,'assembly-row-actions');row.summary=element('small');row.adjust=element('button','微调','compact');
-        row.adjust.onclick=()=>openAdjustment(row);actions.append(row.summary,row.adjust);
+        const actions=element('div',undefined,'assembly-row-actions');row.actions=actions;row.summary=element('small');row.adjust=element('button','微调此段','assembly-adjust-button');
+        row.adjust.title='微调当前选中的录音，仅影响此区间';row.adjust.setAttribute('aria-haspopup','dialog');
+        row.adjust.onclick=()=>openAdjustment(row);head.append(row.adjust);actions.append(row.summary);
         card.append(head,candidates,actions);$('assemblyEditorList').append(card);
         row.check.onchange=()=>{if(busy)return;row.enabled=row.check.checked;if(row.enabled && row.choice==='auto' && !row.autoId)row.choice=row.candidates[0]?.id || 'auto';changed();};
       }
