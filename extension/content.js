@@ -7,8 +7,16 @@
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = EchoPanelView.html;
   const $ = id => root.getElementById(id);
-  try{$('compareMode').value=window.localStorage.getItem('echo-compare-mode-v1')==='simultaneous'?'simultaneous':'sequential';}catch{$('compareMode').value='sequential';}
-  $('compareMode').onchange=()=>{controls();try{window.localStorage.setItem('echo-compare-mode-v1',$('compareMode').value);}catch{status('对比方式未能保存，本次仍可使用。');}};
+  let replayChoice='recording';
+  try{const saved=window.localStorage.getItem('echo-replay-choice-v1') || window.localStorage.getItem('echo-practice-replay-mode-v1') || window.localStorage.getItem('echo-compare-mode-v1');if(['recording','sequential','simultaneous'].includes(saved))replayChoice=saved;}catch{}
+  for(const id of ['practiceReplayMode','reviewReplayMode']){
+    $(id).value=replayChoice;
+    $(id).onchange=()=>{
+      replayChoice=['sequential','simultaneous'].includes($(id).value)?$(id).value:'recording';
+      for(const menu of ['practiceReplayMode','reviewReplayMode'])$(menu).value=replayChoice;
+      controls();try{window.localStorage.setItem('echo-replay-choice-v1',replayChoice);}catch{status('回听方式未能保存，本次仍可使用。');}
+    };
+  }
   const takeLimitKey='echo-take-limit-v1';
   function recordingTakeLimit(){
     try{return EchoStorage.takeLimit(window.localStorage.getItem(takeLimitKey));}catch{return EchoStorage.MAX_TAKES;}
@@ -365,7 +373,7 @@
   void refreshFavorite();
   $('openLanguageSettings').onclick=()=>{if(mode==='idle')settings.open('captions','openLanguageSettings');};
   $('backToPractice').onclick = () => showPage('practice',true);
-  $('reviewReplay').onclick = () => playRecording(take);
+  $('reviewReplay').onclick=guarded(()=>replayRecordingChoice(take));
   $('openCaptionSetup').onclick=()=>showPage('transcript',true);
   function updateSettingsSummaries(){
     $('speedSummary').textContent=`${gainPreferences[activity]?'自动增益':`增益 +${manualGainPreferences[activity]} dB`} · ${recordingQuality==='lossless'?'无损':'高品质'}${sidetoneEnabled?' · 耳返':''}`;
@@ -647,7 +655,9 @@
       :whole?'● 开始整段配音':paragraph?'● 开始段落配音':'● 开始配音';
     $('record').title='使用当前范围以 1× 原速录音，保留之前的版本。';
     $('original').textContent=singing?'▶ 听原曲':'▶ 听原声';
-    $('replay').textContent=singing?'▷ 回听最近演唱':'▷ 回听录音';
+    const replayMode=$('practiceReplayMode').value;
+    $('replay').textContent=replayMode==='simultaneous'?'⇄ 同时对比':replayMode==='sequential'?'⇄ 先后对比':singing?'▷ 回听最近演唱':'▷ 回听录音';
+    $('practiceReplayMode').title=`${replayMode==='simultaneous'?'同时对比':replayMode==='sequential'?'先后对比':'仅回听录音'} · 切换回听方式`;
     $('loop').textContent=whole?(singing?'↻ 循环听整首':'↻ 循环听整段'):'↻ 循环听选段';
     $('autoPractice').textContent=paragraph?'▶ 自动练当前段落':whole?(singing?'▶ 自动练整首':'▶ 自动练整段'):singing?'▶ 自动练当前片段':'▶ 自动跟读';
   }
@@ -725,14 +735,13 @@
     $('originalLoopControl').hidden=mode!=='original';
     $('stop').textContent=mode==='lead-in'?'■ 取消准备':mode==='recording'?'■ 结束录音':mode==='saving'?'保存中…':'■ 停止';
     $('reviewReplay').disabled = (busy && mode!=='replay') || !take;
-    $('reviewReplay').textContent=mode==='replay'?'■ 停止回放':'▷ 回放录音';
+    $('reviewReplay').textContent=mode==='replay'?'■ 停止回放':replayChoice==='simultaneous'?'⇄ 同时对比':replayChoice==='sequential'?'⇄ 先后对比':'▷ 回放录音';
+    $('reviewReplayMode').disabled=busy || !take;
+    $('reviewReplayMode').title=$('practiceReplayMode').title;
     $('reviewReplay').setAttribute('aria-pressed',String(mode==='replay'));
     $('playAll').disabled = busy || !videoHistory.length;
     $('replay').disabled = busy || !(isSinging()?songTake:take);
-    $('compare').textContent=$('compareMode').value==='simultaneous'?'⇄ 同时对比':'⇄ 对比原声';
-    $('compareMode').title=`${$('compareMode').value==='simultaneous'?'同时播放':'先后播放'} · 切换对比方式`;
-    $('compare').disabled = busy || !take;
-    $('compareMode').disabled=busy || !take;
+    $('practiceReplayMode').disabled=$('replay').disabled;
     $('speakWord').disabled = busy;
     $('reuseSongRange').disabled=busy;
     $('starTake').disabled=!take || !['idle','replay'].includes(mode) || starringTake;
@@ -2102,6 +2111,12 @@
     if(event.key==='Escape' && mode!=='idle'){event.preventDefault();event.stopPropagation();stop();return;}
     const action=EchoPracticeTools.shortcut(event);if(!action)return;
     if(action==='help'){if(mode!=='idle')return;event.preventDefault();event.stopPropagation();tools.open('help');return;}
+    if(action==='compare'){
+      const value=currentPage==='recordings'?take:isSinging()?songTake:take;
+      if(mode!=='idle' || !value)return;
+      event.preventDefault();event.stopPropagation();
+      void guarded(()=>compareRecording(value,replayChoice==='simultaneous'?'simultaneous':'sequential'))();return;
+    }
     const target=action==='record' && ['recording','lead-in'].includes(mode)?$('stop'):action==='replay' && currentPage==='recordings'?$('reviewReplay'):$(action);
     if(!target || target.disabled || target.hidden)return;
     event.preventDefault();event.stopPropagation();target.click();
@@ -2144,10 +2159,15 @@
     if(usesBacking() && !backingFor(r)){$('backingSettings').click();status(`请先为当前练习范围准备${backingName()}，再开始${isSinging()?'录唱':'配音'}。`);return;}
     return record();
   }); $('stop').onclick = stop;
-  $('replay').onclick = guarded(async () => { if(isSinging())return songTake && playRecording(songTake);const token = ++generation; mode = 'replay'; controls(); status('正在随画面播放你的配音…'); await replay(token); });
-  $('compare').onclick=guarded(async()=>{
-    if(!take || mode!=='idle')return;
-    const simultaneous=$('compareMode').value==='simultaneous',token=++generation;
+  function replayRecordingChoice(value){
+    if(!value)return;
+    return mode==='replay' || replayChoice==='recording'?playRecording(value):compareRecording(value,replayChoice);
+  }
+  $('replay').onclick=guarded(()=>replayRecordingChoice(isSinging()?songTake:take));
+  async function compareRecording(value,comparison){
+    if(!value || mode!=='idle')return;
+    setTake(value);renderHistory();saveProgress();
+    const simultaneous=comparison==='simultaneous',token=++generation;
     mode='compare';controls();
     if(simultaneous){
       status('正在准备原声与录音同时对比…');
@@ -2156,7 +2176,7 @@
     status('对比 1/2：原声');await original(take,token,false,EchoBackingPitch.normalize(take.backingPitch));
     if(token!==generation)return;
     status('对比 2/2：你的配音');await replay(token);
-  });
+  }
   $('import').onclick = () => { if(mode==='idle')$('file').click(); };
   $('file').onchange = guarded(async () => {
     const file=$('file').files[0];$('file').value='';

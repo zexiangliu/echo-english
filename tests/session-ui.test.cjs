@@ -466,12 +466,14 @@ test('recording mix controls appear for saved playback but not original listenin
   const {nodes}=await mount(storage,{video,globals:{Audio}});
   nodes.get('tab-recordings').onclick();
   assert.equal(nodes.get('mixControls').hidden,false);
-  for(const action of ['original','compare']){
+  for(const action of ['original','reviewReplay']){
+    if(action==='reviewReplay'){nodes.get('reviewReplayMode').value='sequential';nodes.get('reviewReplayMode').onchange();}
     const playing=nodes.get(action).onclick();await waitUntil(()=>!!nodes.get('transportProgress').oninput);
     assert.equal(nodes.get('mixControls').hidden,true);
     nodes.get('stop').onclick();await playing;
     assert.equal(nodes.get('mixControls').hidden,false);
   }
+  nodes.get('practiceReplayMode').value='recording';nodes.get('practiceReplayMode').onchange();
   const replaying=nodes.get('replay').onclick();await waitUntil(()=>!!nodes.get('transportProgress').oninput);
   assert.equal(nodes.get('mixControls').hidden,false);
   nodes.get('stop').onclick();await replaying;
@@ -1335,7 +1337,7 @@ test('listening includes the configured context while recorded comparison keeps 
   assert.equal(nodes.get('start').value,10);assert.equal(nodes.get('end').value,11);
   document.documentElement.children[0].style.display='block';
   events.get('keydown')({altKey:true,shiftKey:true,code:'KeyC',preventDefault(){},stopPropagation(){}});
-  await waitUntil(()=>nodes.get('compare').disabled===false);assert.equal(video.plays[1].at,10);
+  await waitUntil(()=>nodes.get('reviewReplay').disabled===false);assert.equal(video.plays[1].at,10);
   (await storage.ready).close();
 });
 
@@ -1846,14 +1848,14 @@ test('practice library previews a pack, waits for explicit import, merges data a
 test('document shortcuts only act when the panel is visible and no input or dialog owns focus',async()=>{
   const storage=createStorage(new IDBFactory()),{nodes,document,events}=await mount(storage);
   const host=document.documentElement.children[0],handler=events.get('keydown');let prevented=0,compared=0;
-  nodes.get('compare').disabled=false;nodes.get('compare').onclick=()=>compared++;
-  const key=extra=>({altKey:true,shiftKey:true,code:'KeyC',preventDefault(){prevented++;},stopPropagation(){},...extra});
+  nodes.get('replay').disabled=false;nodes.get('replay').onclick=()=>compared++;
+  const key=extra=>({altKey:true,shiftKey:true,code:'KeyP',preventDefault(){prevented++;},stopPropagation(){},...extra});
   host.style.display='none';handler(key());assert.equal(compared,0);
   host.style.display='block';handler(key({target:{tagName:'INPUT'}}));assert.equal(prevented,0);
   nodes.get('openPreparation').onclick();handler(key());assert.equal(prevented,0);nodes.get('closeTools').onclick();
   handler(key());assert.equal(compared,1);assert.equal(prevented,1);
   handler(key({code:'KeyF'}));assert.equal(prevented,1);assert.equal(await storage.getFavorite('video'),undefined);
-  nodes.get('compare').disabled=true;handler(key());assert.equal(compared,1);assert.equal(prevented,1);
+  nodes.get('replay').disabled=true;handler(key());assert.equal(compared,1);assert.equal(prevented,1);
   (await storage.ready).close();
 });
 
@@ -2380,7 +2382,7 @@ test('recording dialogs separate downloads and adjustments, block practice short
   assert.equal(nodes.get('transport').hidden,false);assert.equal(progress.disabled,true);
   assert.equal(nodes.get('mixControls').hidden,false);
   assert.equal(nodes.get('recording-adjustments').hidden,true);assert.equal(nodes.get('recording-downloads').hidden,false);
-  let shortcut=0;nodes.get('compare').onclick=()=>shortcut++;
+  let shortcut=0;nodes.get('reviewReplay').onclick=()=>shortcut++;
   events.get('keydown')({altKey:true,shiftKey:true,code:'KeyC',preventDefault(){},stopPropagation(){}});assert.equal(shortcut,0);
   nodes.get('recordingAdjustTab').onclick();assert.equal(nodes.get('recording-adjustments').hidden,false);
   const preview=nodes.get('recordingDialogPreview').onclick();await waitUntil(()=>player?.paused===false);
@@ -2413,7 +2415,8 @@ test('original phase of comparison hides unrelated replay gains and restores the
   await storage.saveTake({id:'voice',videoId:'video',cueKey:'manual:0:5',start:0,end:5,speed:1,createdAt:1,capture:'vocal',blob:new Blob(['voice'])});
   const {nodes}=await mount(storage,{video:leadInVideo({hold:true})});
   nodes.get('tab-recordings').onclick();
-  const playing=nodes.get('compare').onclick();await waitUntil(()=>!!nodes.get('transportProgress').oninput);
+  nodes.get('reviewReplayMode').value='sequential';nodes.get('reviewReplayMode').onchange();
+  const playing=nodes.get('reviewReplay').onclick();await waitUntil(()=>!!nodes.get('transportProgress').oninput);
   assert.equal(nodes.get('mixControls').hidden,true);
   assert.equal(nodes.get('replayVocalVolume').disabled,true);
   assert.equal(nodes.get('resetReplayMix').disabled,true);
@@ -2736,7 +2739,8 @@ test('original comparison follows the selected recording key rather than the lat
   await storage.saveTake({id:'voice',videoId:'video',cueKey:'line',kind:'song',capture:'vocal',start:5,end:8,speed:1,createdAt:1,backingPitch:3,blob:new Blob(['voice'])});
   const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},async create(value){key=value.semitones;return {media:video,range:{start:0,end:60},dispose(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
   nodes.get('tab-recordings').onclick();await nodes.get('historyList').children[0].children[0].onclick();
-  const comparing=nodes.get('compare').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(key,3);
+  nodes.get('reviewReplayMode').value='sequential';nodes.get('reviewReplayMode').onchange();
+  const comparing=nodes.get('reviewReplay').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(key,3);
   nodes.get('stop').onclick();await comparing;(await storage.ready).close();
 });
 
@@ -2917,9 +2921,12 @@ for(const shifted of [false,true])test(`simultaneous comparison ${shifted?'uses 
     EchoOriginalAudio:{clear(){},async create(options){key=options.semitones;return {media:video,range:{start:0,end:60},dispose(){disposed++;}};}},
     EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(){backings++;throw Error('must not mix extra backing');},async createAudioOutput(){return {setVolume(value){vocalGain=value;},dispose(){}};}},
     requestAnimationFrame(fn){frames.set(++next,fn);return next;},cancelAnimationFrame:id=>frames.delete(id)}});
-  nodes.get('tab-recordings').onclick();assert.equal(nodes.get('compareMode').value,'sequential');
-  nodes.get('compareMode').value='simultaneous';nodes.get('compareMode').onchange();assert.equal(preferences.get('echo-compare-mode-v1'),'simultaneous');
-  const comparing=nodes.get('compare').onclick();await waitUntil(()=>sound && nodes.get('pausePlayback').hidden===false);
+  const menu=shifted?'reviewReplayMode':'practiceReplayMode',button=shifted?'reviewReplay':'replay';
+  if(shifted)nodes.get('tab-recordings').onclick();else{nodes.get('activityMode').value='sing';nodes.get('activityMode').onchange();}
+  assert.equal(nodes.get(menu).value,'recording');
+  nodes.get(menu).value='simultaneous';nodes.get(menu).onchange();assert.equal(preferences.get('echo-replay-choice-v1'),'simultaneous');
+  assert.equal(nodes.get('practiceReplayMode').value,nodes.get('reviewReplayMode').value);
+  const comparing=nodes.get(button).onclick();await waitUntil(()=>sound && nodes.get('pausePlayback').hidden===false);
   assert.equal(video.muted,false);assert.equal(sound.paused,false);assert.equal(video.plays.length,0,'wait for recording capture padding');
   sound.currentTime=.4;
   const pending=[...frames.values()];frames.clear();for(const fn of pending)fn();await Promise.resolve();
@@ -2941,7 +2948,25 @@ test('stopping simultaneous comparison during shifted-original preparation canno
   const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let resolve,disposed=0,voices=0;
   await storage.saveTake({id:'voice',videoId:'video',cueKey:'line',capture:'vocal',start:5,end:10,speed:1,createdAt:1,backingPitch:2,blob:new Blob(['voice'])});
   const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},create:()=>new Promise(done=>{resolve=()=>done({media:video,range:{start:0,end:60},dispose(){disposed++;}});})},EchoVocalEffects:{...require('../extension/vocal-effects.js'),async createPlayer(){voices++;throw Error('must not start');}}}});
-  nodes.get('tab-recordings').onclick();nodes.get('compareMode').value='simultaneous';const comparing=nodes.get('compare').onclick();await waitUntil(()=>!!resolve);
+  nodes.get('tab-recordings').onclick();nodes.get('reviewReplayMode').value='simultaneous';nodes.get('reviewReplayMode').onchange();const comparing=nodes.get('reviewReplay').onclick();await waitUntil(()=>!!resolve);
   nodes.get('stop').onclick();resolve();await comparing;assert.equal(disposed,1);assert.equal(voices,0);assert.equal(video.plays.length,0);
+  (await storage.ready).close();
+});
+
+
+for(const activity of ['speech','sing'])test(`practice ${activity} replay menu shares the recording-page choice and runs sequential comparison`,async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let sound;
+  await storage.saveSession({videoId:'video',activity,start:5,end:10,selectedTakeId:'voice'});
+  await storage.saveTake({id:'voice',videoId:'video',cueKey:activity==='sing'?'song:line':'line',kind:activity==='sing'?'song':undefined,capture:'vocal',start:5,end:10,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  class Audio{constructor(){sound=this;this.currentTime=0;this.duration=5;this.paused=true;}async play(){this.paused=false;}pause(){this.paused=true;}}
+  const {nodes}=await mount(storage,{video,globals:{Audio}});
+  assert.equal(nodes.get('replay').disabled,false);assert.equal(nodes.get('practiceReplayMode').value,'recording');
+  nodes.get('practiceReplayMode').value='sequential';nodes.get('practiceReplayMode').onchange();
+  assert.equal(nodes.get('reviewReplayMode').value,'sequential');assert.match(nodes.get('replay').textContent,/先后对比/);
+  const comparing=nodes.get('replay').onclick();await waitUntil(()=>video.plays.length===1);assert.equal(sound,undefined);
+  video.advance(10);await waitUntil(()=>sound?.paused===false);sound.onended();await comparing;
+  assert.equal(nodes.get('page-practice').hidden,false);assert.equal(nodes.get('panel').dataset.mode,'idle');
+  nodes.get('tab-recordings').onclick();nodes.get('reviewReplayMode').value='recording';nodes.get('reviewReplayMode').onchange();
+  assert.equal(nodes.get('practiceReplayMode').value,'recording');assert.match(nodes.get('reviewReplay').textContent,/回放录音/);
   (await storage.ready).close();
 });
