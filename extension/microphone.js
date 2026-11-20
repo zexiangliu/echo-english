@@ -54,6 +54,13 @@
     try{return await mediaDevices.getUserMedia({audio:constraints,video:false});}
     catch(error){
       if(constraints.deviceId && ['NotFoundError','OverconstrainedError'].includes(error.name))throw Error('所选麦克风不可用，请在「录音设置」中重新检测并选择输入设备。',{cause:error});
+      const messages={
+        NotAllowedError:'无法使用麦克风：权限未开启。请在浏览器地址栏的网站设置中允许麦克风，并检查系统麦克风权限，然后重试。',
+        SecurityError:'无法使用麦克风：浏览器或系统限制了访问。请检查网站与系统的麦克风权限，然后重试。',
+        NotFoundError:'未检测到麦克风。请连接或启用输入设备，再到「录音设置」重新检测并选择。',
+        NotReadableError:'无法读取麦克风。请检查设备连接，关闭可能占用麦克风的应用，然后重试。'
+      };
+      if(messages[error.name])throw Error(messages[error.name],{cause:error});
       throw error;
     }
   }

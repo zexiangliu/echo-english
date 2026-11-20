@@ -2994,3 +2994,30 @@ test('backing generation has an explicit return to practice without starting a r
   nodes.get('practiceSettings').onclick();assert.equal(nodes.get('backingReturnPractice').hidden,true);
   await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });
+
+test('next paragraph preserves its size, ends with a single clip and retains previous recordings',async()=>{
+  const storage=createStorage(new IDBFactory());let captures=0;
+  const cues=Array.from({length:5},(_,i)=>({start:i*5,end:(i+1)*5,text:`Line ${i+1}`}));
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'paragraph'},paragraphFirst:0,paragraphLast:1,cues,index:0,start:0,end:10,speed:'1'});
+  await storage.saveTake({id:'keep',videoId:'video',cueKey:'old',start:0,end:10,speed:1,createdAt:1,capture:'vocal',blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{globals:{navigator:{mediaDevices:{async getUserMedia(){captures++;throw Error('unexpected capture');}}}}});
+  nodes.get('nextParagraph').onclick();
+  assert.equal(nodes.get('paragraphFirst').value,'2');assert.equal(nodes.get('paragraphLast').value,'3');
+  assert.equal(Number(nodes.get('start').value),10);assert.equal(Number(nodes.get('end').value),20);
+  assert.equal(nodes.get('practiceScope').value,'paragraph');assert.equal(nodes.get('panel').dataset.mode,'idle');
+  nodes.get('nextParagraph').onclick();
+  assert.equal(nodes.get('practiceScope').value,'clip');assert.equal(nodes.get('clipCue').value,'4');
+  assert.equal(Number(nodes.get('start').value),20);assert.equal(Number(nodes.get('end').value),25);
+  assert.equal(captures,0);assert.equal((await storage.listTakes('video')).length,1);
+  await new Promise(r=>setTimeout(r,5));
+  const session=await storage.getSession('video');assert.equal(session.scopes.sing,'clip');assert.equal(session.index,4);
+  (await storage.ready).close();
+});
+
+test('next paragraph is unavailable at the last paragraph',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveSession({videoId:'video',activity:'speech',scopes:{speech:'paragraph'},paragraphFirst:0,paragraphLast:1,cues:[{start:0,end:5,text:'A'},{start:5,end:10,text:'B'}],index:0,start:0,end:10,speed:'1'});
+  const {nodes}=await mount(storage);assert.equal(nodes.get('nextParagraph').disabled,true);
+  nodes.get('nextParagraph').onclick();assert.equal(Number(nodes.get('start').value),0);assert.equal(Number(nodes.get('end').value),10);
+  await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
+});

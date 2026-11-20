@@ -492,11 +492,24 @@
     const r=EchoPractice.paragraphRange(cues,paragraphFirst,paragraphLast);
     $('start').value=r.start.toFixed(2);$('end').value=r.end.toFixed(2);
   }
-  for(const id of ['paragraphFirst','paragraphLast'])$(id).onchange=()=>{
-    if(mode!=='idle')return;
-    if(id==='paragraphFirst')paragraphFirst=Number($(id).value);else paragraphLast=Number($(id).value);
+  function selectParagraph(first,last){
+    paragraphFirst=first;paragraphLast=last;
     renderParagraphOptions();syncParagraphBounds();index=paragraphFirst;karaokeIssue='';
     updateCaption();chooseCurrentTake();controls();saveProgress();if(hasBackingTools())void restoreServerBacking();
+  }
+  for(const id of ['paragraphFirst','paragraphLast'])$(id).onchange=()=>{
+    if(mode!=='idle')return;
+    selectParagraph(Number($('paragraphFirst').value),Number($('paragraphLast').value));
+  };
+  $('nextParagraph').onclick=()=>{
+    if(mode!=='idle' || !isParagraph() || paragraphLast>=cues.length-1)return;
+    const first=paragraphLast+1,last=Math.min(cues.length-1,first+paragraphLast-paragraphFirst);
+    if(first===last){
+      $('practiceScope').value='clip';scopePreferences[activity]='clip';
+      select(first,{navigate:true,focusRecord:true});
+    }else{
+      selectParagraph(first,last);$('record').focus();
+    }
   };
   function selectionInput(duration=document.querySelector('video.html5-main-video')?.duration) {
     return {activity,scope:$('practiceScope').value,start:Number($('start').value),end:Number($('end').value),speed:Number($('speed').value),duration,cues,index,first:paragraphFirst,last:paragraphLast};
@@ -706,6 +719,7 @@
     $('openPreparation').disabled=mode!=='idle';renderFavorite();
     $('scopeControls').hidden=recording;
     $('wholeScopeHint').hidden=$('practiceScope').value!=='whole';
+    $('nextParagraph').disabled=busy || paragraphLast>=cues.length-1;
     $('paragraphSelection').hidden=!isParagraph();$('paragraphScopeOption').disabled=cues.length<2;
     $('singDetails').hidden=recording || (!hasBackingTools() && mode!=='separating' && !karaokeIssue);
     for(const id of ['practiceTools','backingSettings','practiceSettings'])$(id).hidden=recording;
