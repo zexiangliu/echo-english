@@ -71,9 +71,19 @@
           const store=tx.objectStore('recordings'); store.put(value);
           store.index('segment').getAll([value.videoId,value.cueKey]).onsuccess=e=>{
             const takes=e.target.result.sort((a,b)=>b.createdAt-a.createdAt || b.id.localeCompare(a.id));
-            const expired=limit===0?[]:takes.filter(t=>!t.imported).slice(limit);
+            const expired=limit===0?[]:takes.filter(t=>!t.imported && !t.starred).slice(limit);
             for (const old of expired) store.delete(old.id);
             set(takes.filter(t=>!expired.includes(t)));
+          };
+        });
+      },
+      updateTakeStarred(id, starred) {
+        return transaction(['recordings'],'readwrite',(tx,set)=>{
+          const store=tx.objectStore('recordings');
+          store.get(id).onsuccess=event=>{
+            const take=event.target.result;
+            if(!take){set(null);return;}
+            const updated={...take,starred:!!starred};store.put(updated);set(updated);
           };
         });
       },

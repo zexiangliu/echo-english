@@ -13,7 +13,7 @@
   }
   function renderTakeLimit(){
     const limit=recordingTakeLimit();$('takeLimit').value=String(limit);
-    $('takeRetentionInfo').textContent=`${limit===0?'每个练习片段保留全部版本':`每个练习片段保留最近 ${limit} 个版本`}；可在练习设置调整。导入的录音额外保留，可手动删除。演唱与配音分别保存。连播使用各片段最新版本。`;
+    $('takeRetentionInfo').textContent=`${limit===0?'每个练习片段保留全部版本':`每个练习片段保留最近 ${limit} 个版本`}；可在练习设置调整。标星和导入的录音额外保留，可手动删除。演唱与配音分别保存。连播使用各片段最新版本。`;
   }
   $('takeLimit').onchange=()=>{
     try{window.localStorage.setItem(takeLimitKey,String(EchoStorage.takeLimit($('takeLimit').value)));}
@@ -36,6 +36,7 @@
   }):null;
   for(const id of ['pages','scopeControls','clipBounds','singDetails'])practiceLayoutObserver?.observe($(id));
 
+  let starringTake=false;
   let cues = [], index = -1, take = null, mode = 'idle', generation = 0,clipRangeAdjusted=false;
   let recordingSession = null, audio = null, savedVideo = null,originalNavigation=null,recordingAttempt=null,referenceOutput=null;
   const playback = EchoPlayback.create();
@@ -208,6 +209,7 @@
   }});
   const models=EchoModels.attach({view:root,doc:document,request:karaokeRequest,onCatalog:()=>updateBackingControls()});
   const assembly=EchoAssembly.attach({view:root,doc:document,env:globalThis,
+    onStar:(id,starred)=>setTakeStarred(id,starred),
     onChange:choices=>{assemblyChoices=choices;saveProgress();controls();},
     onClose:()=>{assemblyContext=null;if(mode==='assembly'){mode='idle';controls();}},
     onRender:async options=>{
@@ -727,6 +729,9 @@
     $('compare').disabled = busy || !take;
     $('speakWord').disabled = busy;
     $('reuseSongRange').disabled=busy;
+    $('starTake').disabled=!take || !['idle','replay'].includes(mode) || starringTake;
+    $('starTake').textContent=take?.starred?'★ 已标星':'☆ 标星';
+    $('starTake').setAttribute('aria-pressed',String(!!take?.starred));
     $('deleteTake').disabled = busy || !take; $('undoDelete').disabled = busy;
     root.querySelectorAll('.version-choice').forEach(b=>b.disabled=busy && mode!=='replay');
     root.querySelectorAll('.history-delete').forEach(b=>b.disabled=busy && mode!=='replay');
@@ -1012,6 +1017,24 @@
     analysisRequest++;
     $('analysis').hidden=!take;
   }
+  async function setTakeStarred(id,starred){
+    const owner=videoId,updated=await storage.updateTakeStarred(id,starred);
+    if(owner!==videoId)return updated;
+    if(!updated)throw Error('这条录音已不存在，请刷新录音列表。');
+    videoHistory=videoHistory.map(value=>value.id===id?{...value,starred}:value);
+    if(take?.id===id)take={...take,starred};
+    if(songTake?.id===id)songTake={...songTake,starred};
+    renderHistory();return updated;
+  }
+  $('starTake').onclick=guarded(async()=>{
+    if(!take || starringTake || !['idle','replay'].includes(mode))return;
+    const id=take.id,owner=videoId,starred=!take.starred;
+    starringTake=true;controls();
+    try{
+      await setTakeStarred(id,starred);
+      if(owner===videoId)status(starred?'已标星此版本，将额外保留，不受版本数限制。':'已取消此版本的星标。');
+    }finally{starringTake=false;controls();}
+  });
   function currentCueKey() { return selectionState().value?.key || null; }
   function currentVideoTitle(){
     const page=document.querySelector('ytd-watch-flexy[video-id]');
@@ -1077,7 +1100,7 @@
       const button=document.createElement('button');button.className='history-row';button.disabled=mode!=='idle';
       button.setAttribute('aria-pressed',String(value.cueKey===take?.cueKey));
       const versions=videoHistory.filter(t=>t.cueKey===value.cueKey).length;
-      button.append(document.createTextNode(`${value.label || '手动片段'} · ${recordingTime(value.start)} · ${versions} 个版本`));
+      button.append(document.createTextNode(`${value.label || '手动片段'} · ${recordingTime(value.start)} · ${versions} 个版本${videoHistory.some(t=>t.cueKey===value.cueKey && t.starred)?' · ★':''}`));
       const small=document.createElement('small');small.textContent=recordingText(value);button.append(small);
       button.onclick=guarded(()=>selectRecording(value));
       const row=document.createElement('div');row.className='history-item';
@@ -1091,7 +1114,7 @@
       const versions=videoHistory.filter(t=>t.cueKey===take.cueKey).sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
       $('versionChoices').hidden=versions.length<2;
       versions.forEach((value,i)=>{
-        const button=document.createElement('button');button.className='version-choice';button.textContent=`版本 ${i+1}${i===versions.length-1?' · 最新':''}`;
+        const button=document.createElement('button');button.className='version-choice';button.textContent=`${value.starred?'★ ':''}版本 ${i+1}${i===versions.length-1?' · 最新':''}`;
         button.title=new Date(value.createdAt).toLocaleString('zh-CN');button.setAttribute('aria-pressed',String(value.id===take.id));
         button.onclick=guarded(()=>selectRecording(value));$('versionChoices').append(button);
       });

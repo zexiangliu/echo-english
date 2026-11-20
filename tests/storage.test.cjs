@@ -143,3 +143,24 @@ test('snapshot scopes every store to one video and can omit accompaniment record
   const absent=await storage.snapshot('absent');assert.ok(Object.values(absent).every(rows=>rows.length===0));
   (await storage.ready).close();
 });
+
+
+test('starred takes survive rolling retention, can be unstarred, and keep their audio and effects',async()=>{
+  const factory=new IDBFactory(),storage=createStorage(factory);
+  await storage.saveTake({...take('1'),effects:{delayMs:20}});
+  const starred=await storage.updateTakeStarred('1',true);
+  assert.equal(starred.starred,true);
+  assert.deepEqual(starred.effects,{delayMs:20});
+  assert.equal(await starred.blob.text(),'audio');
+  for(const id of ['2','3','4'])await storage.saveTake(take(id),{maxTakes:1});
+  assert.deepEqual((await storage.listTakes('video')).map(t=>t.id),['4','1']);
+  (await storage.ready).close();
+  const reopened=createStorage(factory);
+  assert.equal((await reopened.listTakes('video')).find(t=>t.id==='1').starred,true);
+  await reopened.updateTakeStarred('1',false);
+  assert.equal((await reopened.listTakes('video')).length,2);
+  await reopened.saveTake(take('5'),{maxTakes:1});
+  assert.deepEqual((await reopened.listTakes('video')).map(t=>t.id),['5']);
+  assert.equal(await reopened.updateTakeStarred('missing',true),null);
+  (await reopened.ready).close();
+});

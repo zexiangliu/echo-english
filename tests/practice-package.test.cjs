@@ -10,12 +10,14 @@ function snapshot(){return {
   favorites:[{videoId:'video',title:'收藏',createdAt:2}]
 };}
 test('practice pack preserves original audio bytes, Unicode, subtitles and assembly choices without temporary URLs',async()=>{
-  const source=snapshot(),file=pack.encode(source),restored=await pack.decode(file);
+  const source=snapshot();source.recordings[0].starred=true;
+  const file=pack.encode(source),restored=await pack.decode(file);
   assert.deepEqual(restored.sessions,source.sessions);assert.deepEqual(restored.favorites,source.favorites);
   for(const name of ['recordings','backings']){
     assert.deepEqual(await restored[name][0].blob.arrayBuffer(),await source[name][0].blob.arrayBuffer());
     assert.equal(restored[name][0].blob.type,source[name][0].blob.type);
   }
+  assert.equal(restored.recordings[0].starred,true);
   assert.equal(restored.recordings[0].url,undefined);assert.equal(restored.recordings[0].referenceSource,'original');
   assert.deepEqual(restored.recordings[0].effects,source.recordings[0].effects);
 });

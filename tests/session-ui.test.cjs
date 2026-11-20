@@ -2763,3 +2763,29 @@ test('vertical assembly lists every overlap candidate, auditions without selecti
   b.children[0].onclick();assert.equal(check.checked,true);
   nodes.get('closeAssembly').onclick();(await storage.ready).close();
 });
+
+
+test('recording versions can be starred without switching versions, and assembly shows the saved star',async()=>{
+  const storage=createStorage(new IDBFactory());
+  for(const [id,createdAt] of [['older',1],['newer',2]])await storage.saveTake({id,videoId:'video',cueKey:'song:range',label:id,start:0,end:10,speed:1,createdAt,kind:'song',capture:'vocal',blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage);
+  nodes.get('tab-recordings').onclick();
+  const versions=nodes.get('versionChoices');
+  await versions.children[0].onclick();
+  await nodes.get('starTake').onclick();
+  assert.equal(nodes.get('starTake').attrs['aria-pressed'],'true');
+  assert.match(versions.children[0].textContent,/★/);
+  assert.equal(versions.children[0].attrs['aria-pressed'],'true');
+  assert.equal((await storage.listTakes('video')).find(t=>t.id==='older').starred,true);
+  await nodes.get('assembleSong').onclick();
+  const candidates=nodes.get('assemblyEditorList').children[0].children[1];
+  assert.match(candidates.children[1].children[0].children[0].textContent,/★ older/);
+  assert.equal(candidates.children[0].children[0].attrs['aria-pressed'],'true');
+  await candidates.children[1].children[2].onclick();
+  assert.equal(candidates.children[1].children[2].attrs['aria-pressed'],'false');
+  assert.equal((await storage.listTakes('video')).find(t=>t.id==='older').starred,false);
+  assert.equal(candidates.children[0].children[0].attrs['aria-pressed'],'true');
+  nodes.get('closeAssembly').onclick();
+  assert.equal(nodes.get('starTake').attrs['aria-pressed'],'false');
+  (await storage.ready).close();
+});

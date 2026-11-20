@@ -24,9 +24,10 @@
   }
   function choices(rows){return rows.map(r=>({start:r.start,end:r.end,choice:r.choice,enabled:r.enabled}));}
   function preview(takes,duration,saved,api=root.EchoAudioExport){return api.selectionPlan(takes,duration,selections(buildRows(takes,duration,saved,api)));}
-  function attach({view,doc=root.document,env=root,onRender,onDownload,onChange=()=>{},onClose=()=>{}}){
+  function attach({view,doc=root.document,env=root,onRender,onDownload,onChange=()=>{},onClose=()=>{},onStar=null}){
     const $=id=>view.getElementById(id),dialog=$('assemblyDialog'),urlApi=env.URL;
     let rows=[],takes=[],duration=0,busy=false,revision=0,url=null;
+    const starring=new Set();
     const audio=$('assemblyAudio');
     function element(tag,text,cls){const node=doc.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
     const pitchLabel=take=>env.EchoBackingPitch.label(take.backingPitch);
@@ -65,6 +66,11 @@
           const selected=option.take.id===id;
           option.choose.setAttribute('aria-pressed',String(selected));
           option.choose.disabled=busy;option.play.disabled=busy || !inside;
+          option.heading.textContent=`${option.take.starred?'★ ':''}${option.take.label || '人声录音'}`;
+          option.star.textContent=option.take.starred?'★':'☆';
+          option.star.setAttribute('aria-pressed',String(!!option.take.starred));
+          option.star.setAttribute('aria-label',`${option.take.starred?'取消标星':'标星'} ${option.take.label || '人声录音'}`);
+          option.star.disabled=busy || starring.has(option.take.id);
           option.badge.textContent=selected?'已选':'选用';
         }
         if(!inside)continue;
@@ -88,13 +94,24 @@
         for(const take of row.candidates){
           const item=element('div',undefined,'assembly-candidate'),choose=element('button',undefined,'assembly-choice');
           choose.setAttribute('aria-pressed','false');
-          const heading=element('span',take.label || '人声录音','assembly-choice-title'),badge=element('span','','assembly-choice-badge');
+          const heading=element('span',`${take.starred?'★ ':''}${take.label || '人声录音'}`,'assembly-choice-title'),badge=element('span','','assembly-choice-badge');
           const detail=element('span',`原片段 ${title(take)} · ${pitchLabel(take)} · ${new Date(take.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})}${take.id===row.autoId?' · 最新':''}`,'assembly-choice-meta');
           choose.append(heading,detail,badge);
           const play=element('button','▷ 试听','compact');play.setAttribute('aria-label',`试听 ${take.label || '人声录音'} 在 ${title(row)} 的部分`);
           choose.onclick=()=>{if(busy)return;row.choice=take.id;row.enabled=true;changed();};
           play.onclick=()=>render('preview',row,take.id);
-          item.append(choose,play);candidates.append(item);row.options.push({take,choose,play,badge});
+          const star=element('button','☆','compact assembly-star');star.hidden=!onStar;
+          star.onclick=async()=>{
+            if(busy || !onStar || starring.has(take.id))return;
+            const current=takes,value=!take.starred;starring.add(take.id);update();
+            try{
+              await onStar(take.id,value);
+              if(current!==takes || !isOpen())return;
+              for(const part of rows)for(const option of part.options)if(option.take.id===take.id)option.take.starred=value;
+            }catch(error){if(current===takes && isOpen())$('assemblyEditorMessage').textContent=error.message || '星标保存失败，请重试。';}
+            finally{starring.delete(take.id);if(current===takes && isOpen())update();}
+          };
+          item.append(choose,play,star);candidates.append(item);row.options.push({take,choose,play,badge,heading,star});
         }
         card.append(head,candidates);$('assemblyEditorList').append(card);
         row.check.onchange=()=>{if(busy)return;row.enabled=row.check.checked;if(row.enabled && row.choice==='auto' && !row.autoId)row.choice=row.candidates[0]?.id || 'auto';changed();};
