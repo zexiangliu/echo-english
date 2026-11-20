@@ -1104,8 +1104,10 @@
       const small=document.createElement('small');small.textContent=recordingText(value);button.append(small);
       button.onclick=guarded(()=>selectRecording(value));
       const row=document.createElement('div');row.className='history-item';
-      const remove=document.createElement('button');remove.className='history-delete';remove.textContent='删除';
-      remove.title='删除此片段的最新版本，可撤销';remove.onclick=guarded(()=>deleteRecording(value));
+      const target=take?.cueKey===value.cueKey?take:value;
+      const remove=document.createElement('button');remove.className='history-delete';remove.textContent=take?.cueKey===value.cueKey?'删此版本':'删最新版';
+      remove.title=`删除 ${target.label || '此片段'} · ${new Date(target.createdAt).toLocaleString('zh-CN')} 录制的版本，可撤销`;
+      remove.setAttribute('aria-label',remove.title);remove.onclick=guarded(()=>requestDeleteRecording(target));
       row.append(button,remove);list.append(row);
     });
     list.scrollTop=scroll;
@@ -1134,7 +1136,7 @@
     videoHistory=values;setSongTake(values.find(t=>t.kind==='song')); chooseCurrentTake(preferredId);
   }
   async function loadVideo(id) {
-    const token=++generation; restoring=true; mode='loading'; controls();
+    closeRecordingDelete();const token=++generation; restoring=true; mode='loading'; controls();
     try {
       const [session,values,backings]=await Promise.all([storage.getSession(id),storage.listTakes(id),storage.listBackings(id)]);
       if(id!==videoId || token!==generation) return;
@@ -1520,6 +1522,26 @@
       if(token===generation){finish();status('伴奏试听完成。');}
     } finally {if(url)URL.revokeObjectURL(url);}
   });
+  let pendingRecordingDelete=null;
+  function closeRecordingDelete(){
+    pendingRecordingDelete=null;const dialog=$('recordingDeleteDialog');
+    if(dialog.open){if(dialog.close)dialog.close();else dialog.open=false;}
+  }
+  function requestDeleteRecording(value){
+    if(!value || !['idle','replay'].includes(mode))return;
+    if(!value.starred)return deleteRecording(value);
+    pendingRecordingDelete={id:value.id,videoId};
+    $('recordingDeleteInfo').textContent=`★ ${value.label || '录音'} · ${recordingTime(value.start)}–${recordingTime(value.end)} · ${new Date(value.createdAt).toLocaleString('zh-CN')}`;
+    const dialog=$('recordingDeleteDialog');if(dialog.showModal)dialog.showModal();else dialog.open=true;
+  }
+  $('cancelRecordingDelete').onclick=closeRecordingDelete;
+  $('recordingDeleteDialog').oncancel=event=>{event.preventDefault();closeRecordingDelete();};
+  $('confirmRecordingDelete').onclick=guarded(async()=>{
+    const pending=pendingRecordingDelete;closeRecordingDelete();
+    if(!pending || pending.videoId!==videoId)return;
+    const value=videoHistory.find(t=>t.id===pending.id);
+    if(value)await deleteRecording(value);
+  });
   async function deleteRecording(value) {
     if(!value || (mode!=='idle' && mode!=='replay')) return;
     if(mode==='replay')stop();
@@ -1530,7 +1552,7 @@
     deletedTake=value; $('undoDelete').hidden=false; mode='idle';
     await refreshHistory(selectedId); saveProgress(); status('已删除一个录音版本，可点击「撤销删除」恢复。');
   }
-  $('deleteTake').onclick=guarded(()=>{closeRecordingDialog();return deleteRecording(take);});
+  $('deleteTake').onclick=guarded(()=>{closeRecordingDialog();return requestDeleteRecording(take);});
   $('undoDelete').onclick=guarded(async()=>{
     if(!deletedTake || mode!=='idle') return;
     const value=deletedTake,id=videoId;mode='saving';controls();
@@ -2025,7 +2047,7 @@
     });
     if (token === generation) { finish(); status('自动跟读完成。可以重练或下载这次录音。'); }
   });
-  $('close').onclick = () => { closeClipDialog();settings.close();closeRecordingDialog();tools.close();library.close(true);closeWord(); stop(); host.style.display = 'none'; };
+  $('close').onclick = () => { closeRecordingDelete();closeClipDialog();settings.close();closeRecordingDialog();tools.close();library.close(true);closeWord(); stop(); host.style.display = 'none'; };
   // YouTube sees the shadow host rather than the focused editor, so its
   // document shortcuts cannot reliably tell that the user is typing.
   // Stop propagation only: preserve native typing, selection and paste.
@@ -2038,6 +2060,7 @@
     if(event.isComposing || event.keyCode===229){isolateEditorKeys(event);return;}
     if(event.key!=='Escape'){isolateEditorKeys(event);return;}
     event.preventDefault();event.stopPropagation();
+    if($('recordingDeleteDialog').open){closeRecordingDelete();return;}
     if(subtitleEditor?.isOpen()){subtitleEditor.close();return;}
     if(tools.isOpen()){tools.close();return;}
     if(assembly.isOpen()){assembly.close();return;}
@@ -2053,7 +2076,7 @@
   // Modified shortcuts leave YouTube's unmodified playback keys untouched.
   document.addEventListener('keydown',event=>{
     if(event.isComposing || event.keyCode===229)return;
-    if(host.style.display==='none' || subtitleEditor?.isOpen() || assembly.isOpen() || models.isOpen() || library.isOpen() || tools.isOpen() || settings.isOpen() || $('recordingDialog').open || clipDialog.open)return;
+    if(host.style.display==='none' || subtitleEditor?.isOpen() || assembly.isOpen() || models.isOpen() || library.isOpen() || tools.isOpen() || settings.isOpen() || $('recordingDialog').open || $('recordingDeleteDialog').open || clipDialog.open)return;
     if(event.key==='Escape' && mode!=='idle'){event.preventDefault();event.stopPropagation();stop();return;}
     const action=EchoPracticeTools.shortcut(event);if(!action)return;
     if(action==='help'){if(mode!=='idle')return;event.preventDefault();event.stopPropagation();tools.open('help');return;}
@@ -2196,7 +2219,7 @@
   $('search').onclick = () => { window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent($('query').value || ({'zh':'中文 歌词','ja':'日本語 字幕 歌詞','ko':'한국어 자막 가사','en':'english conversation subtitles'}[contentLanguage()] || 'subtitles lyrics'))}`, '_blank', 'noopener'); };
   chrome.runtime.onMessage.addListener(message => { if (message.type === 'echo-toggle') { const open = host.style.display === 'none'; host.style.display = open ? 'block' : 'none'; if (!open) {closeClipDialog();settings.close();closeRecordingDialog();tools.close();library.close(true);stop();} } });
   function resetVideo(id) {
-    closeClipDialog();settings.close();closeRecordingDialog();tools.close();tools.resetSetup();setupUndo=null;favorite=false;favoriteRequest++;clipRangeAdjusted=false;
+    closeRecordingDelete();closeClipDialog();settings.close();closeRecordingDialog();tools.close();tools.resetSetup();setupUndo=null;favorite=false;favoriteRequest++;clipRangeAdjusted=false;
     library.close(true);
     stop();
     recordingSession=null;recordingAttempt=null;

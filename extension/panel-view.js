@@ -219,6 +219,7 @@
     </div>
     <div class="library-foot"><div class="row"><button id="assemblyLocalPreview" class="primary">▷ 试听本段</button><button id="assemblyLocalContext">▷ 试听前后衔接</button></div><p class="hint">衔接试听包含前后各 2 秒，以导出范围为界；使用拼接页选定的人声／伴奏组合。</p><div id="assemblyLocalPlayer"></div><button id="assemblyLocalCancel" hidden>停止生成</button></div>
   </dialog>
+  <dialog id="recordingDeleteDialog" class="library-dialog clip-dialog" aria-labelledby="recordingDeleteTitle"><header><h2 id="recordingDeleteTitle">删除标星版本？</h2></header><div class="library-body"><p id="recordingDeleteInfo"></p><p class="hint">这是标星保留的录音。仅删除此版本，其他版本保持不变；删除后可撤销。</p></div><div class="library-foot"><button id="cancelRecordingDelete">保留录音</button><button id="confirmRecordingDelete" class="danger">删除此标星版本</button></div></dialog>
   <dialog id="modelDialog" class="library-dialog" aria-labelledby="modelTitle">
     <header><h2 id="modelTitle">本机分离模型</h2><button class="close" id="closeModels" aria-label="关闭模型管理">×</button></header>
     <div class="library-body"><p class="hint">歌曲推荐 Demucs；电影配音可尝试 BandIt，保留音乐和音效。安装在本机服务所在电脑，可随时停止或重试。</p>
