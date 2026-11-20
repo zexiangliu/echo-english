@@ -43,6 +43,7 @@
     .recording-selected-heading{display:flex;align-items:center;gap:8px}.recording-selected-heading #historyInfo{flex:1;min-width:0}.recording-selected-heading #starTake{flex-shrink:0}#starTake[aria-pressed="true"]{color:#f6cc75;border-color:#a3854b;background:#302a20}
     .recording-heading{flex-wrap:wrap}.compact{font-size:11px;padding:7px 9px}.recording-heading .compact{margin-left:auto}
     .selected-recording{padding:12px;margin:12px 0}.selected-recording .row{margin:9px 0}.selected-recording .eyebrow{font-size:10px}.selected-recording .fold{margin-top:10px}
+    #undoDelete{flex-shrink:0;background:#254c45;color:#c4f6e7;border-color:#80c4af}
     .history-actions:has(>button[hidden]:only-child){display:none}
     .danger{color:#ffb4ad;background:transparent}.text-button{font-size:11px;padding:4px 8px;background:transparent;color:#b3eedb}
     #clipBounds{margin-bottom:14px}
@@ -166,7 +167,6 @@
         <div id="historyBrowser"><div class="recording-search-row"><input id="recordingSearch" class="recording-search" placeholder="搜索台词、编号或时间" aria-label="查找录音"><button id="playAll" class="compact" disabled>▶ 连播</button></div>
         <div id="historyList" class="recording-timeline" aria-label="已录句子"></div></div>
 
-        <div class="history-actions"><button id="undoDelete" hidden>撤销删除</button></div>
       </section>
     </div>
     <div id="practiceUtilities" class="practice-utilities">        <button id="practiceTools" class="utility-setting" aria-haspopup="dialog"><span id="practiceToolsSummary">练习设置</span><small id="practiceToolsState"></small><span aria-hidden="true">›</span></button>
@@ -198,7 +198,7 @@
       <label id="replayBackingRow" class="mix-row"><span id="replayBackingLabel">伴奏</span><input id="replayBackingVolume" type="range" min="0" max="2" step="0.05" value="1" aria-label="回听伴奏音量"><output id="replayBackingValue" for="replayBackingVolume">100%</output></label>
       <p id="mixHint" class="hint"></p>
     </details></section></div>
-    <footer><div class="status" id="status" role="status">准备好了，从一句开始。</div><button id="restartRecording" hidden disabled title="丢弃本次未保存录音，从前置准备重新开始；已保存版本保留">↻ 重新录制</button><button id="pausePlayback" disabled hidden>Ⅱ 暂停</button><button id="stop" disabled hidden>■ 停止</button></footer>
+    <footer><div class="status" id="status" role="status">准备好了，从一句开始。</div><button id="undoDelete" hidden title="恢复本次页面会话中最后删除的录音版本">↶ 撤销删除</button><button id="restartRecording" hidden disabled title="丢弃本次未保存录音，从前置准备重新开始；已保存版本保留">↻ 重新录制</button><button id="pausePlayback" disabled hidden>Ⅱ 暂停</button><button id="stop" disabled hidden>■ 停止</button></footer>
     <button class="resize-handle" id="resizePanel" aria-label="调整面板大小" title="拖动左下角调整大小；双击或按 Home 恢复默认。方向键微调，Shift 加速。">⤢</button>
   </div>
   <dialog id="assemblyDialog" class="assembly-dialog" aria-labelledby="assemblyEditorTitle">
