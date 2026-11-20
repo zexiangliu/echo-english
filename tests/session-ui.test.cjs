@@ -2803,12 +2803,18 @@ test('assembly adjustments are scoped to interval and candidate, persisted, and 
   assert.equal(nodes.get('assemblyAdjustDialog').open,true);
   assert.equal(nodes.get('assemblyLocalDelay').value,0);
   nodes.get('assemblyLocalDelay').value='-30';nodes.get('assemblyLocalDelay').onchange();
+  nodes.get('assemblyLocalVolumeSlider').value='119';nodes.get('assemblyLocalVolumeSlider').oninput();
+  assert.equal(nodes.get('assemblyLocalVolume').value,'119');nodes.get('assemblyLocalVolumeSlider').onchange();
+  nodes.get('assemblyLocalLouder').onclick();assert.equal(nodes.get('assemblyLocalVolume').value,120);
+  nodes.get('assemblyLocalQuieter').onclick();assert.equal(nodes.get('assemblyLocalVolumeSlider').value,119);
   nodes.get('assemblyLocalVolume').value='120';nodes.get('assemblyLocalVolume').onchange();
+  assert.equal(nodes.get('assemblyLocalVolumeSlider').value,120);
   nodes.get('assemblyLocalFadeIn').value='0.1';nodes.get('assemblyLocalFadeIn').onchange();
   assert.match(overlap.children[2].children[0].textContent,/提前 30 ms.*120%.*淡入/);
   await nodes.get('assemblyLocalPreview').onclick();
   assert.equal(requests.at(-1).origin,8);assert.equal(requests.at(-1).duration,2);
   assert.equal(requests.at(-1).selection[0].adjustment.delayMs,-30);
+  assert.equal(requests.at(-1).selection[0].adjustment.volume,1.2);
   await nodes.get('assemblyLocalContext').onclick();
   assert.equal(requests.at(-1).origin,6);assert.equal(requests.at(-1).duration,6);
   assert.deepEqual(requests.at(-1).selection.map(s=>[s.start,s.end,s.takeId]),[[6,8,'A'],[8,10,'B'],[10,12,'B']]);

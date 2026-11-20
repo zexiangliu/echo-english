@@ -99,7 +99,7 @@
       for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0 || !!error;
       $('assemblyCancelRender').hidden=!busy;
       dialog.setAttribute('aria-busy',String(busy));
-      for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut','assemblyLocalEarlier','assemblyLocalLater','assemblyLocalReset','assemblyLocalPreview','assemblyLocalContext'])$(id).disabled=busy;
+      for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalVolumeSlider','assemblyLocalQuieter','assemblyLocalLouder','assemblyLocalFadeIn','assemblyLocalFadeOut','assemblyLocalEarlier','assemblyLocalLater','assemblyLocalReset','assemblyLocalPreview','assemblyLocalContext'])$(id).disabled=busy;
       $('assemblyLocalCancel').hidden=!busy;
     }
     function changed(){revision++;clearAudio();$('assemblyEditorMessage').textContent='选择已更新，请重新试听。';onChange(choices(rows));update();}
@@ -190,7 +190,7 @@
     function adjustmentFields(){
       if(!editing)return;
       const {row,id}=editing,source=row.candidates.find(t=>t.id===id),a=env.EchoAudioExport.segmentAdjustment(row.adjustments.find(a=>a.takeId===id));
-      $('assemblyLocalDelay').value=a.delayMs;$('assemblyLocalVolume').value=Math.round(a.volume*100);
+      $('assemblyLocalDelay').value=a.delayMs;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value=Math.round(a.volume*100);
       $('assemblyLocalFadeIn').value=a.fadeInSeconds;$('assemblyLocalFadeOut').value=a.fadeOutSeconds;
       $('assemblyLocalFadeIn').max=$('assemblyLocalFadeOut').max=Math.min(3,row.end-row.start);
       const inherited=env.EchoVocalEffects.normalize(source.effects).delayMs;
@@ -221,6 +221,9 @@
       changed();adjustmentFields();$('assemblyEditorMessage').textContent='本段微调已保存，请重新试听确认；完整试听与导出使用相同设置。';
     }
     for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut'])$(id).onchange=saveAdjustment;
+    $('assemblyLocalVolumeSlider').oninput=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value;};
+    $('assemblyLocalVolumeSlider').onchange=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value;saveAdjustment();};
+    for(const [id,step] of [['assemblyLocalQuieter',-1],['assemblyLocalLouder',1]])$(id).onclick=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=Number($('assemblyLocalVolume').value)+step;saveAdjustment();};
     for(const [id,step] of [['assemblyLocalEarlier',-10],['assemblyLocalLater',10]])$(id).onclick=()=>{if(busy || !editing)return;$('assemblyLocalDelay').value=Number($('assemblyLocalDelay').value)+step;saveAdjustment();};
     $('assemblyLocalReset').onclick=()=>{if(!editing || busy)return;const {row,id}=editing;row.adjustments=row.adjustments.filter(a=>a.takeId!==id);changed();adjustmentFields();};
     $('assemblyLocalPreview').onclick=()=>editing && render('preview',editing.row);
