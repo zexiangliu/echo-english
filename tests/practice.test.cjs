@@ -106,3 +106,11 @@ test('instrumental skipping ignores music captions, requires a gap and stays wit
   assert.equal(lyricSkip(cues,9,{start:0,end:10}).target,null);
   assert.equal(lyricSkip([],0,{start:0,end:20}).target,null);
 });
+
+test('recorded range uses the captured end without changing the selected practice range',()=>{
+  const {recordingRange}=require('../extension/practice.js');
+  const take={start:5,end:60,capturedEnd:8,speed:1};
+  assert.deepEqual(recordingRange(take),{start:5,end:8,speed:1});assert.equal(take.end,60);
+  assert.equal(recordingRange({...take,capturedEnd:70}).end,60);
+  assert.equal(recordingRange({start:5,end:60,speed:1}).end,60);
+});

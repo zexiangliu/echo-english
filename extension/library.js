@@ -8,7 +8,26 @@
     const pack=typeof module!=='undefined'?require('./practice-package.js'):root.EchoPracticePackage;
     const operationIds=['packageExport','packageChoose','packageImport','packageCancel','packageScope','packageBackings','packageReplace','closeLibrary',...Object.values(tabs)];
     function lock(value){busy=value;for(const id of operationIds)$(id).disabled=value;render();}
-    function preview(data){importData=data;$('packagePreview').hidden=!data;$('packageReplace').checked=false;if(data)$('packageInfo').textContent=`${data.sessions.length} 个视频进度 · ${data.recordings.length} 条录音 · ${data.backings.length} 条伴奏／背景音 · ${data.favorites.length} 个收藏`;}
+    function preview(data){
+      importData=data;$('packagePreview').hidden=!data;$('packageReplace').checked=false;
+      $('packageContents').open=false;$('packageContentList').replaceChildren();
+      if(!data)return;
+      $('packageInfo').textContent=`${data.sessions.length} 个视频进度 · ${data.recordings.length} 条录音 · ${data.backings.length} 条伴奏／背景音 · ${data.favorites.length} 个收藏`;
+      const videos=new Map(),existing=new Set(items.filter(item=>item.hasSession).map(item=>item.videoId));
+      for(const name of ['sessions','favorites','recordings','backings'])for(const value of data[name]){
+        if(!videos.has(value.videoId))videos.set(value.videoId,{id:value.videoId,title:'',recordings:0,backings:0,progress:false});
+        const item=videos.get(value.videoId);item.title ||= value.title || '';
+        if(name==='sessions')item.progress=true;
+        if(name==='recordings' || name==='backings')item[name]++;
+      }
+      const entries=[...videos.values()];
+      for(const item of entries.slice(0,50)){
+        const row=element('div',item.title || item.id,'package-content-item');
+        row.append(element('small',`${item.id} · ${item.recordings} 条录音 · ${item.backings} 条伴奏／背景音${item.progress?existing.has(item.id)?' · 已有本机进度':' · 新视频进度':''}`));
+        $('packageContentList').append(row);
+      }
+      if(entries.length>50)$('packageContentList').append(element('p',`仅显示前 50 个视频；另有 ${entries.length-50} 个视频。上方数量和导入包含全部内容。`,'hint'));
+    }
     async function run(work){if(busy)return;lock(true);try{await work();}catch(error){$('libraryMessage').textContent=error.message || '操作失败，请重试。';}finally{lock(false);}}
 
     function element(tag,text,className){const el=doc.createElement(tag);el.textContent=text;if(className)el.className=className;return el;}

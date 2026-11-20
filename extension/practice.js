@@ -1,5 +1,9 @@
 (function(root) {
   const SPEEDS=Object.freeze([0.5,0.6,0.7,0.75,0.8,0.9,1,1.1,1.2,1.25,1.3,1.4,1.5]);
+  function recordingRange(take){
+    const end=Number.isFinite(take.capturedEnd)?Math.min(take.end,take.capturedEnd):take.end;
+    return {start:take.start,end,speed:take.speed};
+  }
   function isLyricCue(cue){
     if(!Number.isFinite(cue?.start) || !Number.isFinite(cue?.end) || cue.end<=cue.start)return false;
     const text=String(cue.text || '').trim().replace(/^[\[（(【]+|[\]）)】]+$/g,'').trim();
@@ -81,6 +85,6 @@
   async function playQueue({queue,active,play}) {
     for(let i=0;i<queue.length && active();i++)await play(queue[i],i,queue.length);
   }
-  const api = {SPEEDS,isLyricCue,lyricSkip,paragraphRange,leadInSeconds,leadInStart,splitCaption,captionFrame,nudge,runLoop,runPractice,recordingQueue,playQueue,playbackTimeout};
+  const api = {SPEEDS,recordingRange,isLyricCue,lyricSkip,paragraphRange,leadInSeconds,leadInStart,splitCaption,captionFrame,nudge,runLoop,runPractice,recordingQueue,playQueue,playbackTimeout};
   if (typeof module !== 'undefined') module.exports = api; else root.EchoPractice = api;
 })(globalThis);

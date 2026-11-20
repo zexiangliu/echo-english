@@ -1837,6 +1837,8 @@ test('practice library previews a pack, waits for explicit import, merges data a
   assert.equal(nodes.get('packageTools').hidden,false);assert.equal(nodes.get('librarySearch').hidden,true);
   nodes.get('packageFile').files=[pack.encode(data)];await nodes.get('packageFile').onchange();
   assert.equal(nodes.get('packagePreview').hidden,false);assert.equal((await storage.listTakes('another')).length,0);
+  assert.equal(nodes.get('packageContentList').children[0].textContent,'迁移的歌曲');
+  assert.match(nodes.get('packageContentList').children[0].children[0].textContent,/1 条录音.*新视频进度/);
   await nodes.get('packageImport').onclick();assert.equal((await storage.listTakes('another')).length,1);assert.match(nodes.get('libraryMessage').textContent,/导入完成/);
   nodes.get('packageScope').value='another';await nodes.get('packageExport').onclick();
   const link=downloads.at(-1);assert.match(link.download,/Echo-another-.*\.echo/);
@@ -3019,5 +3021,43 @@ test('next paragraph is unavailable at the last paragraph',async()=>{
   await storage.saveSession({videoId:'video',activity:'speech',scopes:{speech:'paragraph'},paragraphFirst:0,paragraphLast:1,cues:[{start:0,end:5,text:'A'},{start:5,end:10,text:'B'}],index:0,start:0,end:10,speed:'1'});
   const {nodes}=await mount(storage);assert.equal(nodes.get('nextParagraph').disabled,true);
   nodes.get('nextParagraph').onclick();assert.equal(Number(nodes.get('start').value),0);assert.equal(Number(nodes.get('end').value),10);
+  await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
+});
+
+test('early-stop comparison and filenames use the captured range without shortening practice',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});
+  await storage.saveSession({videoId:'video',activity:'speech',scopes:{speech:'whole'},start:0,end:60,speed:'1'});
+  await storage.saveTake({id:'partial',videoId:'video',cueKey:'whole',capture:'vocal',start:5,end:60,capturedEnd:8,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video});nodes.get('tab-recordings').onclick();
+  assert.match(nodes.get('historyInfo').textContent,/5.0–8.0.*提前结束/);
+  nodes.get('download').onclick();assert.match(nodes.get('download').download,/00m05.0s-00m08.0s/);
+  nodes.get('reviewReplayMode').value='sequential';nodes.get('reviewReplayMode').onchange();
+  const comparing=nodes.get('reviewReplay').onclick();await waitUntil(()=>video.plays.length>0);
+  assert.match(nodes.get('transportTime').textContent,/0:03/);
+  nodes.get('stop').onclick();await comparing;
+  assert.equal(Number(nodes.get('start').value),0);assert.equal(Number(nodes.get('end').value),60);
+  assert.equal((await storage.listTakes('video'))[0].end,60);
+  (await storage.ready).close();
+});
+
+test('missing assembly accompaniment links to its export range and preserves recording choices',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'clip'},start:0,end:5,speed:'1'});
+  await storage.saveTake({id:'voice',videoId:'video',kind:'song',capture:'vocal',cueKey:'one',start:0,end:10,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video:{duration:30,pause(){}}});
+  await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyMissingMusic').hidden,true);
+  nodes.get('assemblyType').value='mixed';nodes.get('assemblyType').onchange();
+  assert.equal(nodes.get('assemblyMissingMusic').hidden,false);assert.equal(nodes.get('assemblyPreview').disabled,true);
+  nodes.get('assemblyType').value='vocal';nodes.get('assemblyType').onchange();assert.equal(nodes.get('assemblyPreview').disabled,false);
+  nodes.get('assemblyType').value='mixed';nodes.get('assemblyType').onchange();
+  nodes.get('assemblyScope').value='custom';nodes.get('assemblyScope').onchange();
+  nodes.get('assemblyStart').value='5';nodes.get('assemblyEnd').value='15';nodes.get('assemblyEnd').onchange();
+  nodes.get('assemblyPrepareMusic').onclick();
+  assert.equal(nodes.get('assemblyDialog').open,false);assert.equal(nodes.get('settingsDialog').open,true);
+  assert.equal(nodes.get('settings-backing').hidden,false);assert.equal(nodes.get('generationScope').value,'custom');
+  assert.equal(Number(nodes.get('generationStart').value),5);assert.equal(Number(nodes.get('generationEnd').value),15);
+  assert.equal(Number(nodes.get('start').value),0);assert.equal(Number(nodes.get('end').value),5);
+  assert.equal((await storage.listTakes('video')).length,1);
   await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });

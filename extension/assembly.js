@@ -28,7 +28,7 @@
   }
   function choices(rows){return rows.map(r=>({start:r.start,end:r.end,choice:r.choice,enabled:r.enabled,...(r.adjustments?.length?{adjustments:r.adjustments.map(a=>({...a}))}:{})}));}
   function preview(takes,duration,saved,api=root.EchoAudioExport){return api.selectionPlan(takes,duration,selections(buildRows(takes,duration,saved,api)));}
-  function attach({view,doc=root.document,env=root,onRender,onDownload,onChange=()=>{},onClose=()=>{},onStar=null}){
+  function attach({view,doc=root.document,env=root,onRender,onDownload,onChange=()=>{},onClose=()=>{},onStar=null,musicAvailable=null,onPrepareMusic=null}){
     const $=id=>view.getElementById(id),dialog=$('assemblyDialog'),urlApi=env.URL;
     let rows=[],takes=[],duration=0,busy=false,revision=0,url=null,editing=null;
     const adjustDialog=$('assemblyAdjustDialog');
@@ -96,7 +96,10 @@
         $('assemblyEditorTimeline').append(bar);
       }
       for(const id of ['assemblyType','assemblyReset','assemblyScope','assemblyStart','assemblyEnd'])$(id).disabled=busy;
-      for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0 || !!error;
+      const needsMusic=!!(range && $('assemblyType').value==='mixed' && musicAvailable && !musicAvailable(range));
+      $('assemblyMissingMusic').hidden=!needsMusic;
+      $('assemblyPrepareMusic').hidden=!onPrepareMusic;$('assemblyPrepareMusic').disabled=busy || !!error;
+      for(const id of ['assemblyPreview','assemblyDownload'])$(id).disabled=busy || covered<=0 || !!error || needsMusic;
       $('assemblyCancelRender').hidden=!busy;
       dialog.setAttribute('aria-busy',String(busy));
       for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalVolumeSlider','assemblyLocalQuieter','assemblyLocalLouder','assemblyLocalFadeIn','assemblyLocalFadeOut','assemblyLocalEarlier','assemblyLocalLater','assemblyLocalReset','assemblyLocalPreview','assemblyLocalContext'])$(id).disabled=busy;
@@ -174,6 +177,10 @@
       if(skipped)$('assemblyEditorMessage').textContent+=` ${skipped} 条非 1× 录音未列入选择。`;
       draw();if(dialog.showModal)dialog.showModal();else dialog.open=true;$('assemblyEditorList').scrollTop=0;
     }
+    $('assemblyPrepareMusic').onclick=()=>{
+      if(busy || !onPrepareMusic)return;
+      const {start,end}=exportRange();close();onPrepareMusic({start,end});
+    };
     function close(){
       if(!isOpen())return;closeAdjustment();revision++;busy=false;clearAudio();
       if(dialog.close)dialog.close();else dialog.open=false;

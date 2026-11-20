@@ -219,6 +219,11 @@
   }});
   const models=EchoModels.attach({view:root,doc:document,request:karaokeRequest,onCatalog:()=>updateBackingControls()});
   const assembly=EchoAssembly.attach({view:root,doc:document,env:globalThis,
+    musicAvailable:range=>!!backingFor(range),
+    onPrepareMusic:range=>{
+      $('generationScope').value='custom';$('generationStart').value=String(range.start);$('generationEnd').value=String(range.end);
+      settings.open('backing','assembleSong');
+    },
     onStar:(id,starred)=>setTakeStarred(id,starred),
     onChange:choices=>{assemblyChoices=choices;saveProgress();controls();},
     onClose:()=>{assemblyContext=null;if(mode==='assembly'){mode='idle';controls();}},
@@ -1036,7 +1041,7 @@
     take = value ? { ...value, url: URL.createObjectURL(value.blob) } : null;
     $('download').style.display = take ? 'block' : 'none';
     $('recordingEmpty').hidden = !!take || !!videoHistory.length; $('recordingContent').hidden = !take;
-    $('historyInfo').textContent = take ? `${take.label || '手动片段'} · ${take.start.toFixed(1)}–${take.end.toFixed(1)} 秒 · ${take.speed}×${take.withBacking ? ' · 旧版混合录音' : take.capture==='vocal'?' · 独立人声':''}${take.kind==='song'?` · ${EchoBackingPitch.label(take.backingPitch)}`:''}` : '';
+    $('historyInfo').textContent = take ? `${take.label || '手动片段'} · ${take.start.toFixed(1)}–${EchoPractice.recordingRange(take).end.toFixed(1)} 秒${EchoPractice.recordingRange(take).end<take.end-.1?' · 提前结束':''} · ${take.speed}×${take.withBacking ? ' · 旧版混合录音' : take.capture==='vocal'?' · 独立人声':''}${take.kind==='song'?` · ${EchoBackingPitch.label(take.backingPitch)}`:''}` : '';
     $('recordingText').textContent=take ? recordingText(take) : '';
     $('recordingTechnical').textContent=take?EchoMicrophone.describeRecording(take.recordingInfo):'';
     $('reuseSongRange').hidden=!take;
@@ -1077,7 +1082,7 @@
     return savedTitle===videoId?'':savedTitle;
   }
   function takeFilename(value){
-    return EchoAudioExport.filename({title:currentVideoTitle(),videoId,start:value.start,end:value.end,kind:value.withBacking?'mixed':value.capture==='vocal'?'vocals':value.kind==='song'?'recording':'dubbing'});
+    return EchoAudioExport.filename({title:currentVideoTitle(),videoId,...EchoPractice.recordingRange(value),kind:value.withBacking?'mixed':value.capture==='vocal'?'vocals':value.kind==='song'?'recording':'dubbing'});
   }
   // Refresh at click time too: YouTube can finish loading its title after restore.
   $('download').onclick=()=>{if(take)$('download').download=takeFilename(take);};
@@ -1417,7 +1422,7 @@
   }
   function exportTake(value){
     if(!value || value.capture!=='vocal' || value.withBacking)throw Error('这条旧版录音已经混入伴奏，请下载原文件。');
-    const end=Number.isFinite(value.capturedEnd)?Math.min(value.end,value.capturedEnd):value.end;
+    const {end}=EchoPractice.recordingRange(value);
     return exportAudio([value],end-value.start,value.start,true);
   }
   $('openSongRecording').onclick=()=>{if(mode!=='idle' || !songTake)return;setTake(songTake);showPage('recordings',true);};
@@ -1719,8 +1724,8 @@
   async function replay(token, keepBusy = false, {withOriginal=false}={}) {
     closeWord();
     if (!take) return;
-    const t=take,pageVideo=video();saveVideo(pageVideo);pageVideo.muted=true;
-    const v=withOriginal?await referenceMedia(pageVideo,{start:t.start,end:t.end},token,EchoBackingPitch.normalize(t.backingPitch)):pageVideo;
+    const t=take,r=EchoPractice.recordingRange(t),pageVideo=video();saveVideo(pageVideo);pageVideo.muted=true;
+    const v=withOriginal?await referenceMedia(pageVideo,r,token,EchoBackingPitch.normalize(t.backingPitch)):pageVideo;
     if(token!==generation)return;
     v.muted=!withOriginal;v.playbackRate=t.speed;
     await seek(v, t.start, token);
@@ -1804,9 +1809,9 @@
         v.currentTime=videoPosition();
         await accompaniment?.sync();
         if(token!==generation)return;
-        playback.watchEnd(v,t.end,()=>v.pause());
+        playback.watchEnd(v,r.end,()=>v.pause());
         playback.timeout(resolvePlayback,Math.max(0,duration()-elapsed)*1000+15000);
-        if(!playbackActions.paused && v.currentTime<t.end){if(originalFollower)await originalFollower.sync();else await v.play();}
+        if(!playbackActions.paused && v.currentTime<r.end){if(originalFollower)await originalFollower.sync();else await v.play();}
       }});
       renderMixControls();
       if(withOriginal)status('正在同时播放原声与录音，可分别调整音量。');
@@ -1818,13 +1823,13 @@
         const position=videoPosition();
         if(!ended && Math.abs(v.currentTime-position)>0.15)v.currentTime=position;
         // A partially recorded take or delayed video must not cut off the file.
-        playback.watchEnd(v, t.end, () => v.pause());
+        playback.watchEnd(v, r.end, () => v.pause());
         playback.timeout(resolvePlayback, EchoPractice.playbackTimeout(t));
         playbackActions.set(()=>{a.pause();accompaniment?.pause();originalFollower?.pause();v.pause();},async()=>{
           buffering=false;
           await a.play();if(token!==generation)return;
           await accompaniment?.sync();if(token!==generation)return;
-          v.currentTime=videoPosition();if(v.currentTime<t.end){if(originalFollower)await originalFollower.sync();else await v.play();}
+          v.currentTime=videoPosition();if(v.currentTime<r.end){if(originalFollower)await originalFollower.sync();else await v.play();}
         },null,withOriginal?v:null);
       }
       await playbackDone;
@@ -2200,7 +2205,7 @@
       status('正在准备原声与录音一起播放…');
       await replay(token,false,{withOriginal:true});return;
     }
-    status('对比 1/2：原声');await original(take,token,false,EchoBackingPitch.normalize(take.backingPitch));
+    status('对比 1/2：原声');await original(EchoPractice.recordingRange(value),token,false,EchoBackingPitch.normalize(value.backingPitch));
     if(token!==generation)return;
     status('对比 2/2：你的配音');await replay(token);
   }
