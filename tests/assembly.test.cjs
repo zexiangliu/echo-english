@@ -54,3 +54,13 @@ test('local edits persist per interval and per candidate without modifying origi
   const deleted=buildRows(takes.filter(t=>t.id!=='b'),10,saved,api);
   assert(deleted.every(row=>row.adjustments.every(a=>a.takeId!=='b')));
 });
+
+test('dubbing takes use the shared overlap and adjustment plan',()=>{
+  const takes=[voice('old',0,10,1,{kind:undefined}),voice('new',5,15,2,{kind:undefined})];
+  const saved=[{start:5,end:10,choice:'old',enabled:true,adjustments:[{takeId:'old',volume:.8,delayMs:-20}]}];
+  const rows=buildRows(takes,20,saved,api);
+  assert.deepEqual(rows.map(r=>[r.start,r.end,r.candidates.length]),[[0,5,1],[5,10,2],[10,15,1],[15,20,0]]);
+  const plan=preview(takes,20,saved,api);
+  assert.equal(plan.segments.find(s=>s.start===5).take.id,'old');
+  assert.equal(plan.segments.find(s=>s.start===5).adjustment.volume,.8);
+});

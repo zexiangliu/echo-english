@@ -190,7 +190,7 @@ test('movie dubbing monitors cached background but records dry speech and uses s
   assert.equal(exported.takes[0].id,take.id);assert.equal(exported.takes[0].backingPitch,3);assert.equal(exported.backing.key,'background');
   assert.equal(exported.vocalVolume,1.4);assert.equal(exported.volume,0.3);
   assert.match(downloads[0].download,/电影片段.*人声\+背景音.wav$/);
-  assert.equal(nodes.get('songAssembly').hidden,true);
+  assert.equal(nodes.get('songAssembly').hidden,false);assert.equal(nodes.get('assembleSong').textContent,'合成配音');
   nodes.get('recordingPlayback').value='silent';nodes.get('recordingPlayback').onchange();
   nodes.get('reuseSongRange').onclick();
   assert.equal(nodes.get('recordingPlayback').value,'silent');
@@ -3059,5 +3059,56 @@ test('missing assembly accompaniment links to its export range and preserves rec
   assert.equal(Number(nodes.get('generationStart').value),5);assert.equal(Number(nodes.get('generationEnd').value),15);
   assert.equal(Number(nodes.get('start').value),0);assert.equal(Number(nodes.get('end').value),5);
   assert.equal((await storage.listTakes('video')).length,1);
+  await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
+});
+
+test('dubbing assembly is available and keeps its choices separate from singing, including after reload',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveSession({videoId:'video',activity:'speech',start:0,end:5,speed:'1',selectedTakeId:'speech-old',assemblyChoices:[{start:0,end:10,choice:'song',enabled:false}]});
+  for(const [id,kind,createdAt] of [['speech-old',undefined,1],['speech-new',undefined,2],['song','song',3]])
+    await storage.saveTake({id,kind,videoId:'video',cueKey:id==='song'?'song-line':'speech-line',label:id,capture:'vocal',start:0,end:10,speed:1,createdAt,blob:new Blob([id])});
+  let {nodes}=await mount(storage,{video:{duration:20,pause(){}}});
+  nodes.get('tab-recordings').onclick();assert.equal(nodes.get('songAssembly').hidden,false);
+  assert.equal(nodes.get('assembleSong').textContent,'合成配音');await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyMixedOption').textContent,'人声＋背景音');
+  const options=nodes.get('assemblyEditorList').children[0].children[1].children;
+  assert.equal(options.length,2);options[1].children[0].onclick();nodes.get('closeAssembly').onclick();
+  await new Promise(r=>setTimeout(r,5));
+  let session=await storage.getSession('video');assert.equal(session.assemblyChoicesByActivity.speech[0].choice,'speech-old');
+  assert.equal(session.assemblyChoicesByActivity.sing[0].choice,'song');assert.equal(session.assemblyChoicesByActivity.sing[0].enabled,false);
+  ({nodes}=await mount(storage,{video:{duration:20,pause(){}}}));nodes.get('tab-recordings').onclick();await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyEditorList').children[0].children[1].children[1].children[0].getAttribute('aria-pressed'),'true');
+  nodes.get('closeAssembly').onclick();
+  nodes.get('recordingSearch').value='song';nodes.get('recordingSearch').oninput();await nodes.get('historyList').children[0].children[0].onclick();
+  assert.equal(nodes.get('assembleSong').textContent,'合成整首');await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyEditorList').children[0].children[0].children[0].children[0].checked,false);
+  nodes.get('closeAssembly').onclick();
+  await new Promise(r=>setTimeout(r,5));session=await storage.getSession('video');assert.equal(session.assemblyChoicesByActivity.speech[0].choice,'speech-old');
+  (await storage.ready).close();
+});
+
+test('dubbing mixed export uses its background model and filename even when practice is in singing mode',async()=>{
+  const storage=createStorage(new IDBFactory()),requests=[];
+  await storage.saveSession({videoId:'video',activity:'sing',selectedTakeId:'dub',modelPreferences:{speech:'bandit-v2-multi',sing:'demucs-htdemucs'},start:0,end:5,speed:'1'});
+  for(const [id,kind] of [['dub',undefined],['song','song']])await storage.saveTake({id,kind,videoId:'video',cueKey:id,capture:'vocal',start:0,end:10,speed:1,createdAt:id==='dub'?2:1,blob:new Blob(['voice'])});
+  await storage.saveBacking({key:'speech-background',videoId:'video',model:'bandit-v2-multi',start:0,end:20,createdAt:1,blob:new Blob(['background'])});
+  const {nodes,downloads}=await mount(storage,{video:{duration:20,pause(){}},globals:{setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?0:ms),EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['mixed']),gaps:[]};}}}});
+  nodes.get('tab-recordings').onclick();await nodes.get('assembleSong').onclick();
+  nodes.get('assemblyType').value='mixed';nodes.get('assemblyType').onchange();
+  assert.equal(nodes.get('assemblyMissingMusic').hidden,true);await nodes.get('assemblyDownload').onclick();
+  assert.deepEqual(requests[0].takes.map(t=>t.id),['dub']);assert.equal(requests[0].backing.key,'speech-background');
+  assert.match(downloads.at(-1).download,/整段合成_人声\+背景音/);assert.equal(nodes.get('activityMode').value,'sing');
+  nodes.get('closeAssembly').onclick();await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
+});
+
+test('dubbing assembly recovery prepares its background model without changing the selected time range',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveSession({videoId:'video',activity:'sing',selectedTakeId:'dub',modelPreferences:{speech:'bandit-v2-multi'},start:1,end:5,speed:'1'});
+  await storage.saveTake({id:'dub',videoId:'video',cueKey:'speech',capture:'vocal',start:0,end:10,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video:{duration:20,pause(){}}});nodes.get('tab-recordings').onclick();await nodes.get('assembleSong').onclick();
+  nodes.get('assemblyType').value='mixed';nodes.get('assemblyType').onchange();nodes.get('assemblyPrepareMusic').onclick();
+  assert.equal(nodes.get('activityMode').value,'speech');assert.equal(nodes.get('backingModel').value,'bandit-v2-multi');
+  assert.equal(Number(nodes.get('generationStart').value),0);assert.equal(Number(nodes.get('generationEnd').value),20);
+  assert.equal(Number(nodes.get('start').value),1);assert.equal(Number(nodes.get('end').value),5);
   await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });

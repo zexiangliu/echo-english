@@ -7,7 +7,7 @@
     return {delayMs:Math.round(bounded('delayMs',0,-2000,2000)),volume:bounded('volume',1,0,2),fadeInSeconds:bounded('fadeInSeconds',0,0,3),fadeOutSeconds:bounded('fadeOutSeconds',0,0,3)};
   }
   function adjusted(value){const a=segmentAdjustment(value);return !!(a.delayMs || a.volume!==1 || a.fadeInSeconds || a.fadeOutSeconds);}
-  function filename({title,videoId,start,end,kind='recording',assembled=false,partial=false,extension='webm'}){
+  function filename({title,videoId,start,end,kind='recording',assembled=false,partial=false,activity='sing',extension='webm'}){
     const clean=value=>String(value || '').normalize('NFC').replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').replace(/^[. ]+|[. ]+$/g,'');
     let name=clean(title) || clean(`YouTube-${videoId || '录音'}`);
     // Bound UTF-8 bytes as well as characters for macOS/Linux file systems.
@@ -17,7 +17,7 @@
     const time=value=>{const tenths=Math.round(Math.max(0,value)*10),minutes=Math.floor(tenths/600),seconds=((tenths%600)/10).toFixed(1).padStart(4,'0');return `${String(minutes).padStart(2,'0')}m${seconds}s`;};
     const range=Number.isFinite(start) && Number.isFinite(end)?`_${time(start)}-${time(end)}`:'';
     const type=({subtitles:'字幕',vocals:'人声',mixed:'人声+伴奏',background:'人声+背景音',dubbing:'配音',recording:'录音'})[kind] || '录音';
-    return `${name}${range}${assembled?(partial?'_片段合成':'_整首合成'):''}_${type}.${['wav','srt','vtt'].includes(extension)?extension:'webm'}`;
+    return `${name}${range}${assembled?(partial?'_片段合成':activity==='speech'?'_整段合成':'_整首合成'):''}_${type}.${['wav','srt','vtt'].includes(extension)?extension:'webm'}`;
   }
   function plan(takes,duration){
     if(!Number.isFinite(duration) || duration<=0 || duration>600)throw Error('合成范围需在 10 分钟内。');
@@ -27,7 +27,7 @@
       if(!previous || take.createdAt>previous.createdAt || take.createdAt===previous.createdAt && take.id.localeCompare(previous.id)>0)latest.set(key,take);
     }
     const voices=[...latest.values()];
-    if(!voices.length)throw Error('还没有可合成的独立人声。旧版混合录音无法单独提取人声，请重新录唱。');
+    if(!voices.length)throw Error('还没有可合成的独立人声。旧版混合录音无法单独提取人声，请重新录音。');
     const ranges=voices.map(t=>({take:t,start:Math.max(0,t.start),end:Math.min(duration,t.end,Number.isFinite(t.capturedEnd)?t.capturedEnd:t.end)})).filter(t=>t.end>t.start);
     const points=[...new Set([0,duration,...ranges.flatMap(t=>[t.start,t.end]).filter(t=>t>=0 && t<=duration)])].sort((a,b)=>a-b);
     const segments=[],gaps=[];
@@ -38,7 +38,7 @@
       if(last && last.end===start && (!chosen || last.take.id===chosen.take.id))last.end=end;
       else target.push({start,end,...(chosen?{take:chosen.take}:{})});
     }
-    if(segments.some(s=>s.take.speed!==1))throw Error('合成下载暂支持 1× 录唱；其他速度仍可下载原始人声。');
+    if(segments.some(s=>s.take.speed!==1))throw Error('合成下载暂支持 1× 独立人声；其他速度仍可下载原始人声。');
     return {segments,gaps,duration};
   }
   function selectionPlan(takes,duration,selection){
