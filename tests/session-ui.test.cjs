@@ -2904,3 +2904,44 @@ test('shared delete icon follows the selected older version and protects stars w
   assert.equal((await storage.listTakes('video')).find(t=>t.id==='newer').starred,true);
   (await storage.ready).close();
 });
+
+for(const shifted of [false,true])test(`simultaneous comparison ${shifted?'uses recorded key':'uses native original'} with independent volumes, voice clock and shared controls`,async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true}),frames=new Map(),preferences=new Map();let sound,next=0,vocalGain=1,backings=0,key,disposed=0;
+  video.muted=false;video.volume=.4;video.paused=true;
+  const play=video.play;video.play=async()=>{video.paused=false;await play();};video.pause=()=>{video.paused=true;};
+  await storage.saveTake({id:'vocal',videoId:'video',cueKey:'line',kind:'song',capture:'vocal',vocalOffset:.2,start:5,end:10,speed:1,createdAt:1,backingPitch:shifted?-2:0,effects:{delayMs:30},blob:new Blob(['voice'])});
+  await storage.saveBacking({key:'music',videoId:'video',start:0,end:60,createdAt:1,blob:new Blob(['music'])});
+  class Audio{constructor(){sound=this;this.currentTime=0;this.duration=5.2;this.paused=true;}async play(){this.paused=false;}pause(){this.paused=true;}}
+  const {nodes}=await mount(storage,{video,globals:{Audio,
+    window:{localStorage:{getItem:k=>preferences.get(k),setItem:(k,v)=>preferences.set(k,v)},addEventListener(){},speechSynthesis:{cancel(){}}},
+    EchoOriginalAudio:{clear(){},async create(options){key=options.semitones;return {media:video,range:{start:0,end:60},dispose(){disposed++;}};}},
+    EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(){backings++;throw Error('must not mix extra backing');},async createAudioOutput(){return {setVolume(value){vocalGain=value;},dispose(){}};}},
+    requestAnimationFrame(fn){frames.set(++next,fn);return next;},cancelAnimationFrame:id=>frames.delete(id)}});
+  nodes.get('tab-recordings').onclick();assert.equal(nodes.get('compareMode').value,'sequential');
+  nodes.get('compareMode').value='simultaneous';nodes.get('compareMode').onchange();assert.equal(preferences.get('echo-compare-mode-v1'),'simultaneous');
+  const comparing=nodes.get('compare').onclick();await waitUntil(()=>sound && nodes.get('pausePlayback').hidden===false);
+  assert.equal(video.muted,false);assert.equal(sound.paused,false);assert.equal(video.plays.length,0,'wait for recording capture padding');
+  sound.currentTime=.4;
+  const pending=[...frames.values()];frames.clear();for(const fn of pending)fn();await Promise.resolve();
+  assert(Math.abs(video.currentTime-5.2)<.001);assert.equal(video.paused,false);
+  assert.equal(nodes.get('originalVolumeControl').hidden,false);assert.equal(nodes.get('replayMusicOption').hidden,true);assert.equal(backings,0);
+  assert.match(nodes.get('transportLabel').textContent,/同时对比/);
+  nodes.get('originalVolume').value='.25';nodes.get('originalVolume').oninput();assert.equal(video.volume,.25);
+  nodes.get('replayVocalVolume').value='1.3';nodes.get('replayVocalVolume').oninput();assert.equal(vocalGain,1.3);
+  await nodes.get('pausePlayback').onclick();assert.equal(video.paused,true);assert.equal(sound.paused,true);
+  nodes.get('transportProgress').value='.5';await nodes.get('transportProgress').oninput();assert.equal(sound.currentTime,2.6);assert(Math.abs(video.currentTime-7.4)<.001);
+  await nodes.get('pausePlayback').onclick();assert.equal(video.paused,false);assert.equal(sound.paused,false);
+  nodes.get('stop').onclick();await comparing;
+  assert.equal(video.muted,false);assert.equal(video.playbackRate,1.25);assert.equal(nodes.get('originalVolumeControl').hidden,true);assert.equal(frames.size,0);
+  assert.equal(key,shifted?-2:undefined);assert.equal(disposed,shifted?1:0);
+  (await storage.ready).close();
+});
+
+test('stopping simultaneous comparison during shifted-original preparation cannot start late audio',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let resolve,disposed=0,voices=0;
+  await storage.saveTake({id:'voice',videoId:'video',cueKey:'line',capture:'vocal',start:5,end:10,speed:1,createdAt:1,backingPitch:2,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage,{video,globals:{EchoOriginalAudio:{clear(){},create:()=>new Promise(done=>{resolve=()=>done({media:video,range:{start:0,end:60},dispose(){disposed++;}});})},EchoVocalEffects:{...require('../extension/vocal-effects.js'),async createPlayer(){voices++;throw Error('must not start');}}}});
+  nodes.get('tab-recordings').onclick();nodes.get('compareMode').value='simultaneous';const comparing=nodes.get('compare').onclick();await waitUntil(()=>!!resolve);
+  nodes.get('stop').onclick();resolve();await comparing;assert.equal(disposed,1);assert.equal(voices,0);assert.equal(video.plays.length,0);
+  (await storage.ready).close();
+});

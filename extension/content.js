@@ -7,6 +7,8 @@
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = EchoPanelView.html;
   const $ = id => root.getElementById(id);
+  try{$('compareMode').value=window.localStorage.getItem('echo-compare-mode-v1')==='simultaneous'?'simultaneous':'sequential';}catch{$('compareMode').value='sequential';}
+  $('compareMode').onchange=()=>{controls();try{window.localStorage.setItem('echo-compare-mode-v1',$('compareMode').value);}catch{status('对比方式未能保存，本次仍可使用。');}};
   const takeLimitKey='echo-take-limit-v1';
   function recordingTakeLimit(){
     try{return EchoStorage.takeLimit(window.localStorage.getItem(takeLimitKey));}catch{return EchoStorage.MAX_TAKES;}
@@ -190,7 +192,7 @@
   let savedBackings = [], activeKaraokeJob = null, songTake = null;
   let backingRestoreRequest=0, restoringBacking=false, karaokeIssue='';
   let backingOutput=null,leadInOutput=null;
-  let replayMonitor=null, replayVoiceOutput=null, replayTake=null, replayBackingReady=false, replayVoiceMax=2;
+  let replayMonitor=null, replayVoiceOutput=null, replayTake=null, replayBackingReady=false, replayVoiceMax=2,replayOriginal=false;
   for(const id of ['replayVocalVolume','replayBackingVolume'])$(id).value=1;
   $('mixControls').open=false;
   $('replayWithBacking').checked=true;
@@ -561,7 +563,7 @@
     const editable=mode==='idle' || !!replayTake;
     $('mixControls').hidden=!visible;
     if(!target)return;
-    const hasBackground=EchoKaraoke.canReplayBacking(target),name=target.kind==='song'?'伴奏':'背景音';
+    const hasBackground=!replayOriginal && EchoKaraoke.canReplayBacking(target),name=target.kind==='song'?'伴奏':'背景音';
     const ready=hasBackground && (replayTake?replayBackingReady:!!EchoKaraoke.backingForTake(savedBackings,target,videoId));
     const {vocal,backing}=replayMix(), label=target.withBacking?'录音总音量':'人声';
     $('replayVocalLabel').textContent=label;
@@ -581,6 +583,7 @@
     $('mixSummary').textContent=`${target.withBacking?'总音量':'人声'} ${Math.round(vocal*100)}%${hasBackground?` · ${name}${$('replayWithBacking').checked?' '+Math.round(backing*100)+'%':'关'}`:''}`;
     $('mixHint').textContent=target.withBacking?'旧版混合录音只能调整总音量，无法分别调节人声和伴奏。':hasBackground?
       ready?'混合下载沿用此比例，原始人声不变。':`暂无可用${name}，当前仅回听人声。`:'只影响回听，原始录音不变。';
+    if(replayOriginal)$('mixHint').textContent='同时对比：原声音量在进度条下调节，此处调整录音人声音量；不额外叠加伴奏。';
     if(!editable)$('mixHint').textContent='当前未播放录音；此音量只用于录音回听及混合导出。';
     if(replayTake && replayVoiceMax===1)$('mixHint').textContent+=' 当前人声音量最高为 100%。';
   }
@@ -726,7 +729,10 @@
     $('reviewReplay').setAttribute('aria-pressed',String(mode==='replay'));
     $('playAll').disabled = busy || !videoHistory.length;
     $('replay').disabled = busy || !(isSinging()?songTake:take);
+    $('compare').textContent=$('compareMode').value==='simultaneous'?'⇄ 同时对比':'⇄ 对比原声';
+    $('compareMode').title=`${$('compareMode').value==='simultaneous'?'同时播放':'先后播放'} · 切换对比方式`;
     $('compare').disabled = busy || !take;
+    $('compareMode').disabled=busy || !take;
     $('speakWord').disabled = busy;
     $('reuseSongRange').disabled=busy;
     $('starTake').disabled=!take || !['idle','replay'].includes(mode) || starringTake;
@@ -758,7 +764,7 @@
     recordingSession?.pauseFeedback();
     transport.hide();
     replayMonitor?.dispose();replayMonitor=null;
-    replayVoiceOutput?.dispose();replayVoiceOutput=null;replayTake=null;replayBackingReady=false;
+    replayVoiceOutput?.dispose();replayVoiceOutput=null;replayTake=null;replayBackingReady=false;replayOriginal=false;
     playback.cancel();
     if (audio) { audio.pause(); audio.src = ''; audio = null; }
   }
@@ -1674,20 +1680,23 @@
     playback.watchEnd(v,r.end,endRecording);playback.timeout(endRecording,EchoPractice.playbackTimeout(r));
     return session.completed;
   }
-  async function replay(token, keepBusy = false) {
+  async function replay(token, keepBusy = false, {withOriginal=false}={}) {
     closeWord();
     if (!take) return;
-    const t = take, v = video(); saveVideo(v); v.muted = true; v.playbackRate = t.speed;
+    const t=take,pageVideo=video();saveVideo(pageVideo);pageVideo.muted=true;
+    const v=withOriginal?await referenceMedia(pageVideo,{start:t.start,end:t.end},token,EchoBackingPitch.normalize(t.backingPitch)):pageVideo;
+    if(token!==generation)return;
+    v.muted=!withOriginal;v.playbackRate=t.speed;
     await seek(v, t.start, token);
     if (token !== generation) return;
     const player=t.capture==='vocal' && !t.withBacking?await EchoVocalEffects.createPlayer({...t,effects:takeEffects(t)},replayMix().vocal):new Audio(t.url);
     if(token!==generation){player.dispose?.();return;}
     audio=player;
     const a = audio;
-    let accompaniment=null, voiceOutput=null;
-    replayTake=t;replayBackingReady=false;replayVoiceMax=2;renderVocalEffects();
+    let accompaniment=null, voiceOutput=null,originalFollower=null;
+    replayTake=t;replayBackingReady=false;replayVoiceMax=2;replayOriginal=withOriginal;renderVocalEffects();
     $('replayVocalVolume').max='2';
-    const hasBackground=EchoKaraoke.canReplayBacking(t);
+    const hasBackground=!withOriginal && EchoKaraoke.canReplayBacking(t);
     const vocalOffset=t.capture==='vocal'?(t.vocalOffset || 0):0;
     const videoPosition=()=>Math.min(t.end,t.start+Math.max(0,(a.currentTime || 0)-vocalOffset)*t.speed);
     // The recording is the playback clock: never seek past its opening to catch
@@ -1699,7 +1708,7 @@
       buffering=false;
       const position=videoPosition();
       if(Math.abs(v.currentTime-position)>0.15)v.currentTime=position;
-      void a.play().then(()=>accompaniment?.sync()).catch(()=>{if(audio===a){stop();status('录音无法播放，请重试或下载录音。');}});
+      void a.play().then(async()=>{await accompaniment?.sync();await originalFollower?.sync();}).catch(()=>{if(audio===a){stop();status('录音无法播放，请重试或下载录音。');}});
     };
     v.addEventListener('waiting', onWaiting); v.addEventListener('playing', onPlaying);
     let ended=false,resolvePlayback;
@@ -1733,25 +1742,41 @@
           }
         } else if($('replayWithBacking').checked)status('未找到对应伴奏或背景音，当前仅回听人声；可重新提取后再试。');
       }
+      if(withOriginal){
+        // Reuse the same voice-clock follower as accompaniment. This includes
+        // capture padding, drift correction and native/shifted original audio.
+        const monitor={
+          position:()=>v.currentTime,
+          async sync(position){
+            if(token!==generation)return;
+            if(Math.abs(v.currentTime-position)>.03)v.currentTime=position;
+            if(v.paused!==false)await v.play();
+          },
+          pause(){if(token===generation && !buffering)v.pause();},
+          dispose(){if(token===generation)v.pause();}
+        };
+        originalFollower=EchoKaraoke.followRecording({monitor,voice:a,take:t,onError:error=>{if(token===generation){stop();status(error.message || '原声同步失败，请重试。');}}});
+      }
       a.preload='auto';
       await a.play();
       if (token !== generation) return;
-      await accompaniment?.sync();
+      await accompaniment?.sync();await originalFollower?.sync();
       if (token !== generation) return;
       const duration=()=>Number.isFinite(a.duration) && a.duration>0?a.duration:((t.capturedEnd ?? t.end)-t.start)/t.speed+(t.vocalOffset || 0);
-      transport.show({label: '录音回放', position: () => a.currentTime, duration, seekTo: async elapsed => {
+      transport.show({label:withOriginal?'原声＋录音 · 同时对比':'录音回放', position: () => a.currentTime, duration, seekTo: async elapsed => {
         a.currentTime=elapsed;
         v.currentTime=videoPosition();
         await accompaniment?.sync();
         if(token!==generation)return;
         playback.watchEnd(v,t.end,()=>v.pause());
         playback.timeout(resolvePlayback,Math.max(0,duration()-elapsed)*1000+15000);
-        if(!playbackActions.paused && v.currentTime<t.end)await v.play();
+        if(!playbackActions.paused && v.currentTime<t.end){if(originalFollower)await originalFollower.sync();else await v.play();}
       }});
       renderMixControls();
+      if(withOriginal)status('正在同时对比原声与录音，可分别调整音量。');
       playback.onCancel(resolvePlayback);
       if(!ended){
-        await v.play();
+        if(originalFollower)await originalFollower.sync();else await v.play();
         if (token !== generation) return;
         started=true;
         const position=videoPosition();
@@ -1759,20 +1784,21 @@
         // A partially recorded take or delayed video must not cut off the file.
         playback.watchEnd(v, t.end, () => v.pause());
         playback.timeout(resolvePlayback, EchoPractice.playbackTimeout(t));
-        playbackActions.set(()=>{a.pause();accompaniment?.pause();v.pause();},async()=>{
+        playbackActions.set(()=>{a.pause();accompaniment?.pause();originalFollower?.pause();v.pause();},async()=>{
           buffering=false;
           await a.play();if(token!==generation)return;
           await accompaniment?.sync();if(token!==generation)return;
-          v.currentTime=videoPosition();if(v.currentTime<t.end)await v.play();
-        });
+          v.currentTime=videoPosition();if(v.currentTime<t.end){if(originalFollower)await originalFollower.sync();else await v.play();}
+        },null,withOriginal?v:null);
       }
       await playbackDone;
     } finally {
       v.removeEventListener('waiting', onWaiting);v.removeEventListener('playing', onPlaying);
+      originalFollower?.dispose();
       accompaniment?.dispose();if(replayMonitor===accompaniment)replayMonitor=null;
       voiceOutput?.dispose();if(replayVoiceOutput===voiceOutput)replayVoiceOutput=null;
     }
-    if (token === generation) { if (keepBusy) { cancelPlayback(); restoreVideo(); mode = 'practice'; controls(); } else {finish();status('回听结束。');} }
+    if (token === generation) { if (keepBusy) { cancelPlayback(); restoreVideo(); mode = 'practice'; controls(); } else {finish();status(withOriginal?'同时对比结束。':'回听结束。');} }
   }
   async function analyzeTake(value) {
     const request = ++analysisRequest;
@@ -2119,7 +2145,18 @@
     return record();
   }); $('stop').onclick = stop;
   $('replay').onclick = guarded(async () => { if(isSinging())return songTake && playRecording(songTake);const token = ++generation; mode = 'replay'; controls(); status('正在随画面播放你的配音…'); await replay(token); });
-  $('compare').onclick = guarded(async () => { if (!take) return; const token = ++generation; mode = 'compare'; controls(); status('对比 1/2：原声'); await original(take, token, false,EchoBackingPitch.normalize(take.backingPitch)); if (token !== generation) return; status('对比 2/2：你的配音'); await replay(token); });
+  $('compare').onclick=guarded(async()=>{
+    if(!take || mode!=='idle')return;
+    const simultaneous=$('compareMode').value==='simultaneous',token=++generation;
+    mode='compare';controls();
+    if(simultaneous){
+      status('正在准备原声与录音同时对比…');
+      await replay(token,false,{withOriginal:true});return;
+    }
+    status('对比 1/2：原声');await original(take,token,false,EchoBackingPitch.normalize(take.backingPitch));
+    if(token!==generation)return;
+    status('对比 2/2：你的配音');await replay(token);
+  });
   $('import').onclick = () => { if(mode==='idle')$('file').click(); };
   $('file').onchange = guarded(async () => {
     const file=$('file').files[0];$('file').value='';
