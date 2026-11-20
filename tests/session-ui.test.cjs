@@ -705,7 +705,7 @@ test('recording timeline selects without autoplay, exposes versions and uses the
   (await storage.ready).close();
 });
 
- test('timeline delete removes an unselected take without playing and undo restores it',async()=>{
+ test('selecting a recording then deleting with the shared icon leaves the other recording intact and supports undo',async()=>{
   const storage=createStorage(new IDBFactory());const cue={start:0,end:1,text:'First'};
   await storage.saveSession({videoId:'video',index:0,start:0,end:1,speed:'1',cues:[cue]});
   for(const [id,key,start] of [['selected',cueKey(cue),0],['other','other',5]])
@@ -713,8 +713,9 @@ test('recording timeline selects without autoplay, exposes versions and uses the
   let played=0;
   const {nodes}=await mount(storage,{video:{duration:60,play(){played++;}}});
   const row=nodes.get('historyList').children[1];
-  assert.equal(row.children[1].textContent,'删最新版');
-  await row.children[1].onclick();
+  assert.equal(row.children.length,1);
+  await row.children[0].onclick();
+  await nodes.get('deleteTake').onclick();
   assert.deepEqual((await storage.listTakes('video')).map(t=>t.id),['selected']);
   assert.match(nodes.get('historyInfo').textContent,/selected/);
   assert.equal(played,0);assert.equal(nodes.get('undoDelete').hidden,false);
@@ -2882,18 +2883,18 @@ test('assembly overview navigates inside the list without changing selection or 
 });
 
 
-test('timeline deletion follows the selected older version and protects stars with explicit confirmation',async()=>{
+test('shared delete icon follows the selected older version and protects stars with explicit confirmation',async()=>{
   const storage=createStorage(new IDBFactory());
   for(const [id,createdAt,starred] of [['older',1,false],['newer',2,true]])await storage.saveTake({id,videoId:'video',cueKey:'same',label:id,start:0,end:5,speed:1,createdAt,starred,blob:new Blob([id])});
   const {nodes}=await mount(storage);nodes.get('tab-recordings').onclick();
   await nodes.get('versionChoices').children[0].onclick();
-  assert.equal(nodes.get('historyList').children[0].children[1].textContent,'删此版本');
-  assert.match(nodes.get('historyList').children[0].children[1].title,/older/);
-  await nodes.get('historyList').children[0].children[1].onclick();
+  assert.equal(nodes.get('historyList').children[0].children.length,1);
+  assert.match(nodes.get('deleteTake').title,/older/);
+  await nodes.get('deleteTake').onclick();
   assert.deepEqual((await storage.listTakes('video')).map(t=>t.id),['newer']);
   await nodes.get('undoDelete').onclick();
   await nodes.get('versionChoices').children[1].onclick();
-  await nodes.get('historyList').children[0].children[1].onclick();
+  await nodes.get('deleteTake').onclick();
   assert.equal(nodes.get('recordingDeleteDialog').open,true);assert.match(nodes.get('recordingDeleteInfo').textContent,/★ newer/);
   assert.equal((await storage.listTakes('video')).length,2);
   nodes.get('cancelRecordingDelete').onclick();assert.equal((await storage.listTakes('video')).length,2);

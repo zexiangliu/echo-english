@@ -732,9 +732,9 @@
     $('starTake').disabled=!take || !['idle','replay'].includes(mode) || starringTake;
     $('starTake').textContent=take?.starred?'★ 已标星':'☆ 标星';
     $('starTake').setAttribute('aria-pressed',String(!!take?.starred));
+    $('deleteTake').title=take?`删除 ${take.label || '当前录音'} · ${new Date(take.createdAt).toLocaleString('zh-CN')} 录制的版本，可撤销`:'删除当前选中的录音版本';
     $('deleteTake').disabled = busy || !take; $('undoDelete').disabled = busy;
     root.querySelectorAll('.version-choice').forEach(b=>b.disabled=busy && mode!=='replay');
-    root.querySelectorAll('.history-delete').forEach(b=>b.disabled=busy && mode!=='replay');
     root.querySelectorAll('.history-row').forEach(b=>b.disabled=busy && mode!=='replay');
     root.querySelectorAll('.word').forEach(b => {b.disabled=busy && mode!=='original';b.title=mode==='original'?'跳到本句开头':'查看发音和释义';});
     root.querySelectorAll('.cue').forEach(b => b.disabled = busy && mode!=='original');
@@ -1104,11 +1104,7 @@
       const small=document.createElement('small');small.textContent=recordingText(value);button.append(small);
       button.onclick=guarded(()=>selectRecording(value));
       const row=document.createElement('div');row.className='history-item';
-      const target=take?.cueKey===value.cueKey?take:value;
-      const remove=document.createElement('button');remove.className='history-delete';remove.textContent=take?.cueKey===value.cueKey?'删此版本':'删最新版';
-      remove.title=`删除 ${target.label || '此片段'} · ${new Date(target.createdAt).toLocaleString('zh-CN')} 录制的版本，可撤销`;
-      remove.setAttribute('aria-label',remove.title);remove.onclick=guarded(()=>requestDeleteRecording(target));
-      row.append(button,remove);list.append(row);
+      row.append(button);list.append(row);
     });
     list.scrollTop=scroll;
     $('versionChoices').replaceChildren();$('versionChoices').hidden=true;
