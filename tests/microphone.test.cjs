@@ -125,3 +125,13 @@ test('experimental reverb is confined to the headphone branch and can change wit
   input.setMonitoring(true);input.setMonitoring(false);input.setMonitorReverb({});
   assert(!reaches(context.convolver,speaker));assert(reaches(context.source,context.encoded));input.dispose();
 });
+
+test('microphone access errors explain recovery and preserve their original cause',async()=>{
+  const api=require('../extension/microphone.js');
+  for(const [name,expected] of [['NotAllowedError',/网站设置.*系统/],['SecurityError',/权限/],['NotFoundError',/连接.*录音设置/],['NotReadableError',/占用/]]){
+    const cause=Object.assign(Error('browser message'),{name});
+    await assert.rejects(api.requestStream({async getUserMedia(){throw cause;}},{}),error=>expected.test(error.message) && error.cause===cause);
+  }
+  const unknown=Error('unexpected');
+  await assert.rejects(api.requestStream({async getUserMedia(){throw unknown;}},{}),error=>error===unknown);
+});

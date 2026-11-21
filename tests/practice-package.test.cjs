@@ -11,6 +11,7 @@ function snapshot(){return {
 };}
 test('practice pack preserves original audio bytes, Unicode, subtitles and assembly choices without temporary URLs',async()=>{
   const source=snapshot();source.recordings[0].starred=true;
+  source.sessions[0].assemblyChoicesByActivity={sing:source.sessions[0].assemblyChoices,speech:[{start:1,end:4,choice:'dubbing',enabled:true,adjustments:[{takeId:'dubbing',volume:.8,delayMs:20}]}]};
   const file=pack.encode(source),restored=await pack.decode(file);
   assert.deepEqual(restored.sessions,source.sessions);assert.deepEqual(restored.favorites,source.favorites);
   for(const name of ['recordings','backings']){

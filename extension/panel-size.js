@@ -21,6 +21,7 @@
         host.style.left=`${Math.round(Math.max(8,Math.min(position.left,width-rect.width-8)))}px`;
         host.style.top=`${Math.round(Math.max(8,Math.min(position.top,height-rect.height-8)))}px`;host.style.right='auto';
       }else{host.style.left='auto';host.style.right='20px';}
+      panel.setAttribute?.('data-compact-height',String((panel.getBoundingClientRect?.().height || value.maxHeight)<520));
     }
     function save(){try{if(preferred)env.localStorage.setItem(key,JSON.stringify(preferred));else env.localStorage.removeItem(key);}catch{}}
     function reset(){preferred=null;panel.style.width='';panel.style.height='';refresh();save();}
