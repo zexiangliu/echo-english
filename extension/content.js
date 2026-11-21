@@ -1439,7 +1439,7 @@
     const sourceVideo=video(),duration=sourceVideo.duration;sourceVideo.pause?.();EchoAssembly.preview(assemblyTakes(),duration,assemblyChoices(),EchoAudioExport);
     const {vocal:vocalVolume,backing:volume}=replayMix();
     assemblyContext={id:videoId,title:currentVideoTitle(),duration,activity:assemblyActivity(),token:++generation,takes:assemblyTakes(),mix:{vocalVolume,volume,reverb:{...vocalReverb}}};
-    try{assembly.open({takes:assemblyContext.takes,duration,activity:assemblyContext.activity,choices:assemblyChoices(),withMusic:$('assemblyType').value==='mixed'});mode='assembly';controls();}
+    try{assembly.open({videoId,takes:assemblyContext.takes,duration,activity:assemblyContext.activity,choices:assemblyChoices(),withMusic:$('assemblyType').value==='mixed'});mode='assembly';controls();}
     catch(error){assemblyContext=null;throw error;}
   });
   function pendingBackingJob(id){

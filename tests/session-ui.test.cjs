@@ -3136,3 +3136,52 @@ test('single-segment recordings hide redundant search and continuous playback, w
   ({nodes}=await mount(storage));nodes.get('tab-recordings').onclick();assert.equal(nodes.get('recordingSearchTools').hidden,false);
   (await storage.ready).close();
 });
+
+test('assembly returns to the same export range, content and list position independently for speech and singing',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveSession({videoId:'video',activity:'speech',selectedTakeId:'dub',start:0,end:5,speed:'1'});
+  for(const [id,kind] of [['dub',undefined],['song','song']])await storage.saveTake({id,kind,videoId:'video',cueKey:id,label:id,capture:'vocal',start:0,end:20,speed:1,createdAt:id==='dub'?2:1,blob:new Blob(['voice'])});
+  const video={duration:30,pause(){}},{nodes}=await mount(storage,{video});
+  nodes.get('tab-recordings').onclick();await nodes.get('assembleSong').onclick();
+  nodes.get('assemblyScope').value='custom';nodes.get('assemblyStart').value='5';nodes.get('assemblyEnd').value='15';nodes.get('assemblyEnd').onchange();
+  nodes.get('assemblyType').value='mixed';nodes.get('assemblyType').onchange();nodes.get('assemblyEditorList').scrollTop=123;
+  nodes.get('closeAssembly').onclick();await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyScope').value,'custom');assert.equal(Number(nodes.get('assemblyStart').value),5);assert.equal(Number(nodes.get('assemblyEnd').value),15);
+  assert.equal(nodes.get('assemblyType').value,'mixed');assert.equal(nodes.get('assemblyEditorList').scrollTop,123);
+  nodes.get('closeAssembly').onclick();nodes.get('recordingSearch').value='song';nodes.get('recordingSearch').oninput();await nodes.get('historyList').children[0].children[0].onclick();
+  await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyScope').value,'whole');
+  nodes.get('assemblyType').value='vocal';nodes.get('assemblyType').onchange();nodes.get('closeAssembly').onclick();
+  nodes.get('recordingSearch').value='dub';nodes.get('recordingSearch').oninput();await nodes.get('historyList').children[0].children[0].onclick();
+  await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyScope').value,'custom');assert.equal(nodes.get('assemblyType').value,'mixed');
+  nodes.get('assemblyEnd').value='';nodes.get('assemblyEnd').onchange();nodes.get('closeAssembly').onclick();await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyEnd').value,'','unfinished range edits are retained for correction');assert.equal(nodes.get('assemblyPreview').disabled,true);
+  nodes.get('assemblyEnd').value='15';nodes.get('assemblyEnd').onchange();nodes.get('closeAssembly').onclick();video.duration=10;await nodes.get('assembleSong').onclick();
+  assert.equal(nodes.get('assemblyScope').value,'whole','a changed video duration cannot restore stale range bounds');
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});
+
+test('assembly can use the auditioned candidate beside its player without interrupting audio, and exports that selection',async()=>{
+  const storage=createStorage(new IDBFactory()),requests=[];
+  for(const [id,createdAt] of [['older',1],['newer',2]])await storage.saveTake({id,videoId:'video',kind:'song',capture:'vocal',cueKey:'same',label:id,start:0,end:10,speed:1,createdAt,blob:new Blob([id])});
+  const {nodes}=await mount(storage,{video:{duration:10,pause(){}},globals:{setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?0:ms),EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['preview']),gaps:[]};}}}});
+  await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyUseAudition').hidden,true);
+  const older=nodes.get('assemblyEditorList').children[0].children[1].children[1];await older.children[1].onclick();
+  assert.equal(nodes.get('assemblyUseAudition').hidden,false);assert.equal(nodes.get('assemblyUseAudition').disabled,false);
+  const audio=nodes.get('assemblyAudio'),src=audio.src;let pauses=0;audio.pause=()=>{pauses++;};
+  nodes.get('assemblyUseAudition').onclick();assert.equal(audio.src,src);assert.equal(audio.hidden,false);assert.equal(pauses,0);
+  assert.equal(older.children[0].getAttribute('aria-pressed'),'true');assert.equal(nodes.get('assemblyUseAudition').disabled,true);
+  assert.match(nodes.get('assemblyEditorMessage').textContent,/已选用/);
+  await nodes.get('assemblyDownload').onclick();assert.equal(requests.at(-1).selection[0].takeId,'older');assert.equal(nodes.get('assemblyUseAudition').hidden,true);
+  nodes.get('closeAssembly').onclick();await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyUseAudition').hidden,true);
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});
+
+test('assembly export workspace does not carry custom bounds to a different YouTube video',async()=>{
+  const storage=createStorage(new IDBFactory()),location={href:'https://www.youtube.com/watch?v=video',pathname:'/watch'};
+  for(const videoId of ['video','other'])await storage.saveTake({id:videoId,videoId,kind:'song',capture:'vocal',cueKey:'one',start:0,end:20,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes,events}=await mount(storage,{video:{duration:30,pause(){}},globals:{location}});
+  await nodes.get('assembleSong').onclick();nodes.get('assemblyScope').value='custom';nodes.get('assemblyStart').value='5';nodes.get('assemblyEnd').value='15';nodes.get('assemblyEnd').onchange();
+  nodes.get('closeAssembly').onclick();location.href='https://www.youtube.com/watch?v=other';events.get('yt-navigate-finish')();await waitUntil(()=>!nodes.get('read').disabled);
+  await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyScope').value,'whole');assert.equal(Number(nodes.get('assemblyStart').value),0);assert.equal(Number(nodes.get('assemblyEnd').value),30);
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});
