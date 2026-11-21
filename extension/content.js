@@ -458,9 +458,9 @@
   function isParagraph(){return $('practiceScope').value==='paragraph';}
   function cueOptionLabel(cue,i){return `第 ${i+1} 句 · ${recordingTime(cue.start)} · ${captionText(cue).slice(0,50)}`;}
   function syncClipSelection(){
-    const cue=cues[index],start=Number($('start').value),end=Number($('end').value);
-    const standard=cue && EchoSelection.clipRange(cues,index,cue.start,cue.end);
-    $('clipCue').value=cue && Math.abs(standard.start-start)<0.011 && Math.abs(standard.end-end)<0.011?String(index):'';
+    // Adjusting a sentence's boundaries does not turn it into a manual bucket.
+    // Only explicitly choosing a custom range clears its sentence identity.
+    $('clipCue').value=cues[index]?String(index):'';
     $('clipCue').disabled=mode!=='idle' || !cues.length;
   }
   function renderClipOptions(){
@@ -772,7 +772,7 @@
     $('replay').disabled = busy || !(isSinging()?songTake:take);
     $('practiceReplayMode').disabled=$('replay').disabled;
     $('speakWord').disabled = busy;
-    $('reuseSongRange').disabled=busy;
+    $('reuseSongRange').disabled=!take || !['idle','replay','compare'].includes(mode);
     $('starTake').disabled=!take || !['idle','replay'].includes(mode) || starringTake;
     $('starTake').textContent=take?.starred?'★ 已标星':'☆ 标星';
     $('starTake').setAttribute('aria-pressed',String(!!take?.starred));
@@ -1104,8 +1104,9 @@
       return false;
     });
   }
+  function recordingCueIndex(value){return cues.findIndex(c=>c.key===value.cueKey || `song:${c.key}`===value.cueKey);}
   function recordingText(value) {
-    const cue=cues.find(c=>c.key===value.cueKey || `song:${c.key}`===value.cueKey);
+    const cue=cues[recordingCueIndex(value)];
     if(cue)return captionText(cue);
     const covered=cues.filter(c=>c.start<value.end && c.end>value.start);
     return covered.length?covered.slice(0,3).map(c=>captionText(c)).join(' / ')+(covered.length>3?'…':''):value.label || '手动片段';
@@ -1401,10 +1402,14 @@
   };
   for(const id of ['generationStart','generationEnd'])$(id).oninput=()=>{if(mode==='idle')controls();};
   $('reuseSongRange').onclick=()=>{
-    if(mode!=='idle' || !take)return;
-    const value=take;recordingPlaybackPreferences[activity]=$('recordingPlayback').value;activity=value.kind==='song'?'sing':'speech';scopePreferences[activity]='clip';renderActivity();
-    $('start').value=value.start;$('end').value=value.end;$('speed').value=String(value.speed);index=-1;updateCaption();
-    updateSummaries();controls();saveProgress();showPage('practice');
+    if(!['idle','replay','compare'].includes(mode) || !take)return;
+    const value=take;if(mode!=='idle')stop();
+    recordingPlaybackPreferences[activity]=$('recordingPlayback').value;activity=value.kind==='song'?'sing':'speech';scopePreferences[activity]='clip';renderActivity();
+    $('start').value=value.start;$('end').value=value.end;$('speed').value=String(value.speed);
+    index=recordingCueIndex(value);clipRangeAdjusted=true;
+    const v=document.querySelector('video.html5-main-video');
+    v?.pause?.();if(v && Number.isFinite(v.duration) && value.start<=v.duration)v.currentTime=value.start;
+    updateCaption();renderCueList();updateSummaries();controls();saveProgress();showPage('practice');$('record').focus();
     status('已使用此版的范围和试听速度；重新录音固定使用 1× 原速。');if(hasBackingTools()){void checkKaraokeService();void restoreServerBacking();}
   };
   function downloadAudio(blob,name){

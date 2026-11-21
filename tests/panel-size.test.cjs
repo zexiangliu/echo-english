@@ -46,3 +46,12 @@ test('title drag and keyboard move persist, stay on screen, and reset independen
   env.innerWidth=1200;env.innerHeight=900;listeners.get('resize')();assert.equal(host.style.left,'156px');
   api.resetPosition();assert.equal(host.style.left,'auto');assert.equal(host.style.right,'20px');assert(!values.has('echo-panel-position-v1'));
 });
+
+test('layout density follows panel height even inside a tall browser window',()=>{
+  let height=600;const attrs=new Map();
+  const panel={style:{},getBoundingClientRect:()=>({width:550,height}),setAttribute:(k,v)=>attrs.set(k,v)};
+  const api=attach({panel,host:{style:{}},handle:{},env:{innerWidth:1280,innerHeight:1000,addEventListener(){}}});
+  assert.equal(attrs.get('data-short-height'),'true');assert.equal(attrs.get('data-compact-height'),'false');
+  height=440;api.refresh();assert.equal(attrs.get('data-short-height'),'true');assert.equal(attrs.get('data-compact-height'),'true');
+  height=720;api.refresh();assert.equal(attrs.get('data-short-height'),'false');assert.equal(attrs.get('data-compact-height'),'false');
+});

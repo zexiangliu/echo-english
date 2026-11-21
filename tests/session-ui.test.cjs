@@ -645,7 +645,7 @@ test('selecting a lyric uses the main clip recording controls without a duplicat
   assert.match(nodes.get('record').textContent,/开始片段录唱/);
   assert.equal(nodes.get('clipCue').value,'1');
   nodes.get('clipCue').value='0';nodes.get('clipCue').onchange();assert.equal(nodes.get('start').value,'0.00');assert.equal(nodes.get('end').value,'2.00');
-  await nodes.get('startLater').onclick();assert.equal(nodes.get('clipCue').value,'');
+  await nodes.get('startLater').onclick();assert.equal(nodes.get('clipCue').value,'0','timing adjustments retain the selected sentence');
   nodes.get('clipCue').value='1';nodes.get('clipCue').onchange();assert.equal(nodes.get('start').value,'2.00');
   nodes.get('prev').onclick();assert.equal(nodes.get('start').value,'0.00');
   assert.equal(nodes.get('practiceScope').value,'clip');
@@ -3184,4 +3184,43 @@ test('assembly export workspace does not carry custom bounds to a different YouT
   nodes.get('closeAssembly').onclick();location.href='https://www.youtube.com/watch?v=other';events.get('yt-navigate-finish')();await waitUntil(()=>!nodes.get('read').disabled);
   await nodes.get('assembleSong').onclick();assert.equal(nodes.get('assemblyScope').value,'whole');assert.equal(Number(nodes.get('assemblyStart').value),0);assert.equal(Number(nodes.get('assemblyEnd').value),30);
   nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});
+
+for(const activity of ['speech','sing'])test(`returning a ${activity} sentence to practice preserves its identity, adjusted range and rerecording versions`,async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo(),cues=[{start:5,end:10,text:'First line'},{start:10,end:15,text:'Next line'}];
+  video.paused=true;video.play=async function(){this.currentTime=9.8;};
+  const key=(activity==='sing'?'song:':'')+cueKey(cues[0]);
+  await storage.saveSession({videoId:'video',activity,selectedTakeId:'original',scopes:{speech:'clip',sing:'clip'},recordingPlaybackPreferences:{speech:'silent',sing:'silent'},cues,index:1,start:10,end:15,speed:'1',leadInMode:'none'});
+  await storage.saveTake({id:'original',videoId:'video',kind:activity==='sing'?'song':undefined,capture:'vocal',cueKey:key,label:'第 1 句',start:5.2,end:9.8,capturedEnd:8,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  class MediaRecorder{static isTypeSupported(){return true;}constructor(stream,options){this.state='inactive';this.mimeType=options.mimeType;}start(){this.state='recording';}stop(){this.state='inactive';this.ondataavailable({data:new Blob(['retake'])});queueMicrotask(()=>this.onstop());}}
+  const overrides={video,globals:{MediaRecorder,navigator:{mediaDevices:{async getUserMedia(){return {getTracks:()=>[{stop(){}}]};}}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}};
+  let {nodes}=await mount(storage,overrides);nodes.get('tab-recordings').onclick();nodes.get('reuseSongRange').onclick();
+  assert.equal(nodes.get('clipCue').value,'0');assert.equal(nodes.get('position').textContent,'1 / 2');assert.equal(nodes.get('next').disabled,false);
+  assert.equal(Number(nodes.get('start').value),5.2);assert.equal(Number(nodes.get('end').value),9.8);assert.equal(video.currentTime,5.2);
+  await new Promise(r=>setTimeout(r,5));assert.equal((await storage.getSession('video')).clipRangeAdjusted,true);
+  ({nodes}=await mount(storage,overrides));assert.equal(nodes.get('clipCue').value,'0');assert.equal(Number(nodes.get('start').value),5.2);assert.equal(Number(nodes.get('end').value),9.8);
+  await nodes.get('record').onclick();const takes=await storage.listTakes('video');assert.equal(takes.length,2);assert(takes.every(t=>t.cueKey===key));assert.equal(nodes.get('versionChoices').children.length,2);
+  nodes.get('next').onclick();assert.equal(nodes.get('clipCue').value,'1');assert.equal(Number(nodes.get('start').value),10);
+  (await storage.ready).close();
+});
+
+for(const comparison of ['recording','sequential','simultaneous'])test(`practice this range stops ${comparison} playback and moves to its start without deleting any version`,async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let sound;
+  await storage.saveTake({id:'voice',videoId:'video',cueKey:'manual:5.00:10.00',start:5,end:10,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  class Audio{constructor(){sound=this;this.currentTime=0;this.duration=5;this.paused=true;}async play(){this.paused=false;}pause(){this.paused=true;}}
+  const {nodes}=await mount(storage,{video,globals:{Audio,EchoKaraoke:{...require('../extension/karaoke.js'),async createAudioOutput(){return {setVolume(){},dispose(){}};}}}});nodes.get('tab-recordings').onclick();
+  nodes.get('reviewReplayMode').value=comparison;nodes.get('reviewReplayMode').onchange();
+  const replay=nodes.get('reviewReplay').onclick();await waitUntil(()=>comparison==='sequential'?video.plays.length>0:sound?.paused===false);
+  assert.equal(nodes.get('reuseSongRange').disabled,false);nodes.get('reuseSongRange').onclick();await replay;
+  if(sound)assert.equal(sound.paused,true);assert.equal(nodes.get('page-practice').hidden,false);assert.equal(video.currentTime,5);assert.equal(nodes.get('record').disabled,false);
+  assert.equal((await storage.listTakes('video')).length,1);(await storage.ready).close();
+});
+
+test('returning a recording whose subtitle was replaced retains a custom range instead of attaching to a different sentence',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveSession({videoId:'video',activity:'speech',cues:[{start:5,end:10,text:'Replacement words'}],index:0,start:5,end:10,speed:'1'});
+  await storage.saveTake({id:'old',videoId:'video',cueKey:cueKey({start:5,end:10,text:'Original words'}),start:5.2,end:9.8,speed:1,createdAt:1,blob:new Blob(['old'])});
+  const {nodes}=await mount(storage);nodes.get('tab-recordings').onclick();nodes.get('reuseSongRange').onclick();
+  assert.equal(nodes.get('clipCue').value,'');assert.equal(nodes.get('position').textContent,'手动片段');assert.equal(Number(nodes.get('start').value),5.2);assert.equal(Number(nodes.get('end').value),9.8);
+  assert.equal((await storage.listTakes('video'))[0].cueKey,cueKey({start:5,end:10,text:'Original words'}));(await storage.ready).close();
 });
