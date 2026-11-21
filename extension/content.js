@@ -203,6 +203,7 @@
   let replayMonitor=null, replayVoiceOutput=null, replayTake=null, replayBackingReady=false, replayVoiceMax=2,replayOriginal=false;
   for(const id of ['replayVocalVolume','replayBackingVolume'])$(id).value=1;
   $('mixControls').open=false;
+  $('closeReplayMix').onclick=()=>{$('mixControls').open=false;$('mixToggle').focus();};
   $('replayWithBacking').checked=true;
   $('replayWithBacking').onchange=()=>{replayMonitor?.setEnabled($('replayWithBacking').checked);renderMixControls();saveProgress();};
   let serviceState='unknown',serviceCheck=null,serviceMaxSeconds=null,modelManagement=false,serviceAccelerator={},serviceLossless=false;
@@ -1131,6 +1132,7 @@
     const list=$('historyList'), scroll=list.scrollTop;
     const queue=EchoPractice.recordingQueue(videoHistory);
     const query=$('recordingSearch').value.trim().toLowerCase();
+    $('recordingSearchTools').hidden=queue.length<2 && !query;
     const shown=queue.filter(t=>`${recordingText(t)} ${t.label || ''} ${recordingTime(t.start)}`.toLowerCase().includes(query));
     $('historyCount').textContent=`${queue.length} 段`;
     $('recordingSummary').textContent=`${videoHistory.length} 个版本`;
@@ -2137,6 +2139,7 @@
     if(clipDialog.open){closeClipDialog();return;}
     if(settings.isOpen()){settings.close();closeRecordingDialog();return;}
     if(library.isOpen()){library.escape();return;}
+    if(currentPage==='recordings' && $('mixControls').open){$('closeReplayMix').onclick();return;}
     if(!$('wordcard').hidden)closeWord();
     else if(mode!=='idle')stop();
     else $('close').click();

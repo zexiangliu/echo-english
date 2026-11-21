@@ -3112,3 +3112,27 @@ test('dubbing assembly recovery prepares its background model without changing t
   assert.equal(Number(nodes.get('start').value),1);assert.equal(Number(nodes.get('end').value),5);
   await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
 });
+
+test('recording volume panel closes with Done or Escape while retaining mix levels',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveTake({id:'voice',videoId:'video',cueKey:'one',capture:'vocal',start:0,end:5,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes,root,document}=await mount(storage);nodes.get('tab-recordings').onclick();
+  const host=document.documentElement.children[0],display=host.style.display;
+  nodes.get('replayVocalVolume').value='1.3';nodes.get('replayVocalVolume').oninput();
+  nodes.get('mixControls').open=true;nodes.get('closeReplayMix').onclick();assert.equal(nodes.get('mixControls').open,false);
+  nodes.get('mixControls').open=true;root.onkeydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+  assert.equal(nodes.get('mixControls').open,false);assert.equal(Number(nodes.get('replayVocalVolume').value),1.3);
+  assert.equal(host.style.display,display);assert.equal(nodes.get('panel').dataset.mode,'idle');
+  await new Promise(r=>setTimeout(r,5));(await storage.ready).close();
+});
+
+test('single-segment recordings hide redundant search and continuous playback, while an active search remains clearable',async()=>{
+  const storage=createStorage(new IDBFactory());
+  await storage.saveTake({id:'one',videoId:'video',cueKey:'one',start:0,end:5,speed:1,createdAt:1,blob:new Blob(['voice'])});
+  let {nodes}=await mount(storage);nodes.get('tab-recordings').onclick();assert.equal(nodes.get('recordingSearchTools').hidden,true);
+  nodes.get('recordingSearch').value='missing';nodes.get('recordingSearch').oninput();assert.equal(nodes.get('recordingSearchTools').hidden,false);
+  nodes.get('recordingSearch').value='';nodes.get('recordingSearch').oninput();assert.equal(nodes.get('recordingSearchTools').hidden,true);
+  await storage.saveTake({id:'two',videoId:'video',cueKey:'two',start:5,end:10,speed:1,createdAt:2,blob:new Blob(['voice'])});
+  ({nodes}=await mount(storage));nodes.get('tab-recordings').onclick();assert.equal(nodes.get('recordingSearchTools').hidden,false);
+  (await storage.ready).close();
+});
