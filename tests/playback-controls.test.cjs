@@ -73,3 +73,10 @@ test('a pending resume request cannot resume a replacement player',async()=>{
   f.controls.clear();f.controls.set(()=>{},()=>resumes++);
   release();await Promise.all([pausing,resuming]);assert.equal(resumes,0);assert.equal(f.controls.paused,false);
 });
+
+test('a replacement media owner can start paused without invoking playback first',async()=>{
+  const f=fixture();let resumed=0;
+  f.controls.set(()=>{},()=>resumed++,null,null,true);
+  assert.equal(f.controls.paused,true);assert.equal(f.pauseButton.textContent,'▶ 继续');assert.equal(resumed,0);assert.equal(f.pauses.at(-1),true);
+  await f.pauseButton.onclick();assert.equal(resumed,1);assert.equal(f.controls.paused,false);
+});

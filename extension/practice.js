@@ -4,6 +4,11 @@
     const end=Number.isFinite(take.capturedEnd)?Math.min(take.end,take.capturedEnd):take.end;
     return {start:take.start,end,speed:take.speed};
   }
+  function versionReplayPosition(from,to,audioTime){
+    const position=from.start+Math.max(0,audioTime-(from.vocalOffset || 0))*from.speed;
+    if(!Number.isFinite(position) || position<to.start || position>=recordingRange(to).end)return {video:to.start,audio:0,reset:true};
+    return {video:position,audio:(position-to.start)/to.speed+(to.vocalOffset || 0),reset:false};
+  }
   function isLyricCue(cue){
     if(!Number.isFinite(cue?.start) || !Number.isFinite(cue?.end) || cue.end<=cue.start)return false;
     const text=String(cue.text || '').trim().replace(/^[\[（(【]+|[\]）)】]+$/g,'').trim();
@@ -85,6 +90,6 @@
   async function playQueue({queue,active,play}) {
     for(let i=0;i<queue.length && active();i++)await play(queue[i],i,queue.length);
   }
-  const api = {SPEEDS,recordingRange,isLyricCue,lyricSkip,paragraphRange,leadInSeconds,leadInStart,splitCaption,captionFrame,nudge,runLoop,runPractice,recordingQueue,playQueue,playbackTimeout};
+  const api = {SPEEDS,recordingRange,versionReplayPosition,isLyricCue,lyricSkip,paragraphRange,leadInSeconds,leadInStart,splitCaption,captionFrame,nudge,runLoop,runPractice,recordingQueue,playQueue,playbackTimeout};
   if (typeof module !== 'undefined') module.exports = api; else root.EchoPractice = api;
 })(globalThis);

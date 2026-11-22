@@ -114,3 +114,12 @@ test('recorded range uses the captured end without changing the selected practic
   assert.equal(recordingRange({...take,capturedEnd:70}).end,60);
   assert.equal(recordingRange({start:5,end:60,speed:1}).end,60);
 });
+
+test('version comparison keeps the song position across different capture padding, bounds and recording speeds',()=>{
+  const {versionReplayPosition}=require('../extension/practice.js');
+  const from={start:5,end:15,speed:1,vocalOffset:.3},to={start:4.5,end:15,speed:.75,vocalOffset:.1};
+  assert.deepEqual(versionReplayPosition(from,to,3.3),{video:8,audio:.1+3.5/.75,reset:false});
+  assert.deepEqual(versionReplayPosition(from,{...to,capturedEnd:7},3.3),{video:4.5,audio:0,reset:true});
+  assert.deepEqual(versionReplayPosition(from,{...to,start:9},3.3),{video:9,audio:0,reset:true});
+  assert.deepEqual(versionReplayPosition(from,to,NaN),{video:4.5,audio:0,reset:true});
+});

@@ -3266,3 +3266,28 @@ test('deleting a version selects its next displayed neighbor, with the previous 
   assert.equal((await storage.getSession('video')).selectedTakeId,'d');
   (await storage.ready).close();
 });
+
+for(const paused of [false,true])for(const short of ['none','metadata','file'])test(`switching versions ${paused?'while paused':'during playback'} ${short==='none'?'keeps song position':`restarts a shorter take (${short})`} without changing pause state or segment`,async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true}),sounds=[];
+  for(const [id,start,offset,createdAt] of [['older',4.5,.1,1],['newer',5,.3,2]])await storage.saveTake({id,videoId:'video',cueKey:'same',label:id,start,end:15,speed:1,vocalOffset:offset,...(short==='metadata' && id==='older'?{capturedEnd:6.5}:{}),capture:'vocal',createdAt,blob:new Blob([id])});
+  class Audio{constructor(){this.currentTime=0;this.duration=short==='file' && sounds.length?2:12;this.paused=true;this.plays=0;sounds.push(this);}async play(){this.paused=false;this.plays++;}pause(){this.paused=true;}}
+  const {nodes}=await mount(storage,{video,globals:{Audio}});nodes.get('tab-recordings').onclick();
+  const first=nodes.get('reviewReplay').onclick();await waitUntil(()=>sounds[0]?.plays>0 && !nodes.get('pausePlayback').hidden);sounds[0].currentTime=3.3;
+  if(paused)await nodes.get('pausePlayback').onclick();
+  const switching=nodes.get('versionChoices').children[0].onclick();await waitUntil(()=>sounds.length===2 && !nodes.get('pausePlayback').hidden);
+  assert.equal(sounds[0].paused,true);assert(Math.abs(sounds[1].currentTime-(short==='none'?3.6:0))<.001);assert.equal(sounds[1].paused,paused);assert.equal(sounds[1].plays,paused?0:1);
+  assert.equal(nodes.get('pausePlayback').textContent,paused?'▶ 继续':'Ⅱ 暂停');assert.equal(nodes.get('versionChoices').children[0].attrs['aria-pressed'],'true');
+  await nodes.get('starTake').onclick();assert.equal(sounds[1].paused,paused);assert.equal(sounds.length,2);assert.equal((await storage.listTakes('video')).find(t=>t.id==='older').starred,true);
+  if(paused){await nodes.get('pausePlayback').onclick();assert.equal(sounds[1].plays,1);}
+  nodes.get('stop').onclick();await Promise.all([first,switching]);(await storage.ready).close();
+});
+
+for(const activity of ['speech','sing'])test(`returning to the same ${activity} paragraph retains Next paragraph instead of creating a manual clip`,async()=>{
+  const storage=createStorage(new IDBFactory()),cues=[0,5,10,15].map((start,i)=>({start,end:start+5,text:'Line '+i}));
+  await storage.saveSession({videoId:'video',activity,scopes:{[activity]:'paragraph'},cues,index:0,start:0,end:10,speed:'1',paragraphFirst:0,paragraphLast:1});
+  await storage.saveTake({id:'paragraph',videoId:'video',kind:activity==='sing'?'song':undefined,cueKey:(activity==='sing'?'song:':'')+cueKey(null,0,10),start:0,end:10,speed:1,capturedEnd:8,createdAt:1,blob:new Blob(['voice'])});
+  const {nodes}=await mount(storage);nodes.get('tab-recordings').onclick();nodes.get('reuseSongRange').onclick();
+  assert.equal(nodes.get('practiceScope').value,'paragraph');assert.equal(nodes.get('paragraphSelection').hidden,false);assert.equal(nodes.get('nextParagraph').disabled,false);
+  nodes.get('nextParagraph').onclick();assert.equal(Number(nodes.get('paragraphFirst').value),2);assert.equal(Number(nodes.get('paragraphLast').value),3);assert.equal(Number(nodes.get('start').value),10);assert.equal(Number(nodes.get('end').value),20);
+  (await storage.ready).close();
+});

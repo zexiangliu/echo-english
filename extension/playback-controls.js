@@ -19,8 +19,9 @@
       speedInput.value=String(getSpeed());renderVolume();
     }
     function detachVolume(){owner?.volumeMedia?.removeEventListener?.('volumechange',renderVolume);}
-    function set(pause,resume,setSpeed=null,volumeMedia=null){
-      detachVolume();if(paused)clock.setPaused(false);owner={pause,resume,setSpeed,volumeMedia};paused=false;changing=false;changeTask=null;
+    function set(pause,resume,setSpeed=null,volumeMedia=null,initiallyPaused=false){
+      detachVolume();if(paused)clock.setPaused(false);owner={pause,resume,setSpeed,volumeMedia};paused=initiallyPaused;changing=false;changeTask=null;
+      if(paused)clock.setPaused(true);
       volumeMedia?.addEventListener?.('volumechange',renderVolume);render();
     }
     function clear(){detachVolume();if(paused)clock.setPaused(false);owner=null;paused=false;changing=false;changeTask=null;render();}

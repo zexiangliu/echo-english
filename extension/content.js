@@ -1112,7 +1112,7 @@
     return covered.length?covered.slice(0,3).map(c=>captionText(c)).join(' / ')+(covered.length>3?'…':''):value.label || '手动片段';
   }
   function recordingTime(value) {return EchoTransport.formatTime(value);}
-  async function playRecording(value) {
+  async function playRecording(value,{resume=null}={}) {
     let token;
     try {
       if(mode==='replay'){
@@ -1120,12 +1120,18 @@
         if(same){status('已停止回放。');return;}
       } else if(mode!=='idle')return;
       video();token=++generation;mode='replay';setTake(value);renderHistory();saveProgress();
-      status(`正在播放 · ${value.label || '手动片段'}`);await replay(token);
+      status(resume?(resume.reset?`新版本未覆盖原播放位置，已从头${resume.paused?'暂停待听':'开始回听'}。`:'已切换版本，保留同一位置和暂停状态。'):`正在播放 · ${value.label || '手动片段'}`);await replay(token,false,{resume});
     }catch(error){if(token===undefined || token===generation){stop();status(error.message || String(error));}}
   }
   function selectRecording(value){
     if(!value || !['idle','replay'].includes(mode))return;
-    if(mode==='replay' && value.id!==take?.id)stop();
+    if(value.id===take?.id)return;
+    if(mode==='replay'){
+      const resume=replayTake?.id===take?.id && value.cueKey===take.cueKey && audio
+        ?{...EchoPractice.versionReplayPosition(take,value,Number(audio.currentTime)),paused:playbackActions.paused}:null;
+      stop();
+      if(resume)return playRecording(value,{resume});
+    }
     setTake(value);renderHistory();saveProgress();
     if(mode==='idle')status('已选录音，可在底部回放或对比原声。');
   }
@@ -1161,7 +1167,7 @@
       $('versionChoices').hidden=versions.length<2;
       versions.forEach((value,i)=>{
         const button=document.createElement('button');button.className='version-choice';button.textContent=`${value.starred?'★ ':''}版本 ${i+1}${i===versions.length-1?' · 最新':''}`;
-        button.title=new Date(value.createdAt).toLocaleString('zh-CN');button.setAttribute('aria-pressed',String(value.id===take.id));
+        button.title=`${new Date(value.createdAt).toLocaleString('zh-CN')} · 回听中切换版本，从同一位置接着听`;button.setAttribute('aria-pressed',String(value.id===take.id));
         button.onclick=guarded(()=>selectRecording(value));choices.append(button);
         if(value.id===take.id)selectedVersion=button;
       });
@@ -1403,10 +1409,13 @@
   for(const id of ['generationStart','generationEnd'])$(id).oninput=()=>{if(mode==='idle')controls();};
   $('reuseSongRange').onclick=()=>{
     if(!['idle','replay','compare'].includes(mode) || !take)return;
-    const value=take;if(mode!=='idle')stop();
-    recordingPlaybackPreferences[activity]=$('recordingPlayback').value;activity=value.kind==='song'?'sing':'speech';scopePreferences[activity]='clip';renderActivity();
+    const value=take,targetActivity=value.kind==='song'?'sing':'speech',current=selectionState().value,scope=$('practiceScope').value;
+    const keepScope=activity===targetActivity && ['whole','paragraph'].includes(scope) && current?.key===value.cueKey
+      && Math.abs(current.range.start-value.start)<.01 && Math.abs(current.range.end-value.end)<.01;
+    if(mode!=='idle')stop();
+    recordingPlaybackPreferences[activity]=$('recordingPlayback').value;activity=targetActivity;scopePreferences[activity]=keepScope?scope:'clip';renderActivity();
     $('start').value=value.start;$('end').value=value.end;$('speed').value=String(value.speed);
-    index=recordingCueIndex(value);clipRangeAdjusted=true;
+    index=keepScope && scope==='paragraph'?paragraphFirst:recordingCueIndex(value);clipRangeAdjusted=true;
     const v=document.querySelector('video.html5-main-video');
     v?.pause?.();if(v && Number.isFinite(v.duration) && value.start<=v.duration)v.currentTime=value.start;
     updateCaption();renderCueList();updateSummaries();controls();saveProgress();showPage('practice');$('record').focus();
@@ -1740,19 +1749,25 @@
     playback.watchEnd(v,r.end,endRecording);playback.timeout(endRecording,EchoPractice.playbackTimeout(r));
     return session.completed;
   }
-  async function replay(token, keepBusy = false, {withOriginal=false}={}) {
+  async function replay(token, keepBusy = false, {withOriginal=false,resume=null}={}) {
     closeWord();
     if (!take) return;
     const t=take,r=EchoPractice.recordingRange(t),pageVideo=video();saveVideo(pageVideo);pageVideo.muted=true;
     const v=withOriginal?await referenceMedia(pageVideo,r,token,EchoBackingPitch.normalize(t.backingPitch)):pageVideo;
     if(token!==generation)return;
     v.muted=!withOriginal;v.playbackRate=t.speed;
-    await seek(v, t.start, token);
+    await seek(v, resume?.video ?? t.start, token);
     if (token !== generation) return;
     const player=t.capture==='vocal' && !t.withBacking?await EchoVocalEffects.createPlayer({...t,effects:takeEffects(t)},replayMix().vocal):new Audio(t.url);
     if(token!==generation){player.dispose?.();return;}
     audio=player;
     const a = audio;
+    // Older files may lack capturedEnd; decoding exposes their actual duration.
+    if(resume && Number.isFinite(a.duration) && a.duration>0 && resume.audio>=a.duration){
+      resume={...resume,video:t.start,audio:0,reset:true};
+      await seek(v,t.start,token);if(token!==generation)return;
+      status(`新版本录音较短，已从头${resume.paused?'暂停待听':'开始回听'}。`);
+    }
     let accompaniment=null, voiceOutput=null,originalFollower=null;
     replayTake=t;replayBackingReady=false;replayVoiceMax=2;replayOriginal=withOriginal;renderVocalEffects();
     $('replayVocalVolume').max='2';
@@ -1818,7 +1833,8 @@
         originalFollower=EchoKaraoke.followRecording({monitor,voice:a,take:t,onError:error=>{if(token===generation){stop();status(error.message || '原声同步失败，请重试。');}}});
       }
       a.preload='auto';
-      await a.play();
+      if(resume)a.currentTime=resume.audio;
+      if(!resume?.paused)await a.play();
       if (token !== generation) return;
       await accompaniment?.sync();await originalFollower?.sync();
       if (token !== generation) return;
@@ -1836,7 +1852,7 @@
       if(withOriginal)status('正在同时播放原声与录音，可分别调整音量。');
       playback.onCancel(resolvePlayback);
       if(!ended){
-        if(originalFollower)await originalFollower.sync();else await v.play();
+        if(!resume?.paused){if(originalFollower)await originalFollower.sync();else await v.play();}
         if (token !== generation) return;
         started=true;
         const position=videoPosition();
@@ -1849,7 +1865,7 @@
           await a.play();if(token!==generation)return;
           await accompaniment?.sync();if(token!==generation)return;
           v.currentTime=videoPosition();if(v.currentTime<r.end){if(originalFollower)await originalFollower.sync();else await v.play();}
-        },null,withOriginal?v:null);
+        },null,withOriginal?v:null,!!resume?.paused);
       }
       await playbackDone;
     } finally {
