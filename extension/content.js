@@ -1924,16 +1924,25 @@
     if($('recordingDialog').open && $('recordingDetails').open)void analyzeTake(take);
     else analysisRequest++;
   };
-  function closeWord() { wordRequest++; selectedWord = null; $('wordcard').hidden = true; window.speechSynthesis?.cancel(); }
-  async function lookupWord(word) {
+  let wordReturnFocus=null;
+  function closeWord() {
+    wordRequest++;selectedWord=null;window.speechSynthesis?.cancel();
+    const dialog=$('wordcard'),opener=wordReturnFocus;wordReturnFocus=null;
+    if(dialog.open){if(dialog.close)dialog.close();else dialog.open=false;}
+    if(opener?.isConnected!==false)opener?.focus();
+  }
+  async function lookupWord(word,opener) {
     if (mode !== 'idle' || contentLanguage()!=='en') return;
     selectedWord = EchoDictionary.normalize(word);
     if (!selectedWord) return;
     const request = ++wordRequest;
     try { video().pause(); } catch {}
-    $('wordcard').hidden = false; $('wordTitle').textContent = word; $('phonetic').textContent = '';
+    wordReturnFocus=opener;window.speechSynthesis?.cancel();
+    $('wordTitle').textContent = word; $('phonetic').textContent = '';
     $('definitions').textContent = '正在查词…';
-    $('wordcard').scrollIntoView?.({block:'nearest'});
+    const dialog=$('wordcard');
+    if(!dialog.open){if(dialog.showModal)dialog.showModal();else dialog.open=true;}
+    $('speakWord').focus();
     try {
       const result = await chrome.runtime.sendMessage({type:'echo-dictionary',word:selectedWord});
       if (request !== wordRequest) return;
@@ -1949,6 +1958,8 @@
     } catch (error) { if (request === wordRequest) $('definitions').textContent = error.message; }
   }
   $('closeWord').onclick = closeWord;
+  $('wordcard').oncancel=event=>{event.preventDefault();closeWord();};
+  $('wordcard').onclose=()=>{if(selectedWord)closeWord();};
   $('speakWord').onclick = () => {
     if (!selectedWord || mode !== 'idle') return;
     if (!window.speechSynthesis) { $('definitions').textContent = '当前浏览器不支持朗读。'; return; }
@@ -2057,7 +2068,7 @@
       for(const part of text.split(/([A-Za-z]+(?:['’‘-][A-Za-z]+)*)/)){
         if(contentLanguage()==='en' && EchoDictionary.normalize(part)){
           const button=document.createElement('button');button.className='word';button.textContent=part;
-          button.title=mode==='original'?'播放本句开头':'查看发音和释义';button.onclick=event=>{if(mode==='original'){event?.stopPropagation();return originalNavigation?.jump(shownIndex);}void lookupWord(part);};button.disabled=!['idle','original'].includes(mode);$('caption').append(button);
+          button.title=mode==='original'?'播放本句开头':'查看发音和释义';button.onclick=event=>{if(mode==='original'){event?.stopPropagation();return originalNavigation?.jump(shownIndex);}void lookupWord(part,button);};button.disabled=!['idle','original'].includes(mode);$('caption').append(button);
         }else $('caption').append(document.createTextNode(part));
       }
     }
@@ -2169,6 +2180,7 @@
     if(event.isComposing || event.keyCode===229){isolateEditorKeys(event);return;}
     if(event.key!=='Escape'){isolateEditorKeys(event);return;}
     event.preventDefault();event.stopPropagation();
+    if($('wordcard').open){closeWord();return;}
     if($('recordingDeleteDialog').open){closeRecordingDelete();return;}
     if(subtitleEditor?.isOpen()){subtitleEditor.close();return;}
     if(tools.isOpen()){tools.close();return;}
@@ -2179,14 +2191,13 @@
     if(settings.isOpen()){settings.close();closeRecordingDialog();return;}
     if(library.isOpen()){library.escape();return;}
     if(currentPage==='recordings' && $('mixControls').open){$('closeReplayMix').onclick();return;}
-    if(!$('wordcard').hidden)closeWord();
-    else if(mode!=='idle')stop();
+    if(mode!=='idle')stop();
     else $('close').click();
   });
   // Modified shortcuts leave YouTube's unmodified playback keys untouched.
   document.addEventListener('keydown',event=>{
     if(event.isComposing || event.keyCode===229)return;
-    if(host.style.display==='none' || subtitleEditor?.isOpen() || assembly.isOpen() || models.isOpen() || library.isOpen() || tools.isOpen() || settings.isOpen() || $('recordingDialog').open || $('recordingDeleteDialog').open || clipDialog.open)return;
+    if(host.style.display==='none' || $('wordcard').open || subtitleEditor?.isOpen() || assembly.isOpen() || models.isOpen() || library.isOpen() || tools.isOpen() || settings.isOpen() || $('recordingDialog').open || $('recordingDeleteDialog').open || clipDialog.open)return;
     if(event.key==='Escape' && mode!=='idle'){event.preventDefault();event.stopPropagation();stop();return;}
     const action=EchoPracticeTools.shortcut(event);if(!action)return;
     if(action==='help'){if(mode!=='idle')return;event.preventDefault();event.stopPropagation();tools.open('help');return;}

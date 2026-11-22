@@ -3314,3 +3314,26 @@ for(const activity of ['speech','sing'])test(`returning to the same ${activity} 
   nodes.get('nextParagraph').onclick();assert.equal(Number(nodes.get('paragraphFirst').value),2);assert.equal(Number(nodes.get('paragraphLast').value),3);assert.equal(Number(nodes.get('start').value),10);assert.equal(Number(nodes.get('end').value),20);
   (await storage.ready).close();
 });
+
+
+test('dictionary opens as a modal, blocks practice shortcuts and ignores results after closing',async()=>{
+  const storage=createStorage(new IDBFactory());let resolveLookup,focuses=0;
+  await storage.saveSession({videoId:'video',contentLanguage:'en',cues:[{start:0,end:5,text:'Hello world'}],index:0,start:0,end:5});
+  const {nodes,root,events}=await mount(storage,{video:leadInVideo({hold:true}),globals:{chrome:{runtime:{onMessage:{addListener(){}},sendMessage(message){if(message.type==='echo-dictionary')return new Promise(resolve=>{resolveLookup=resolve;});return Promise.resolve({});}}}}});
+  const word=root.querySelectorAll('.word').find(node=>node.textContent==='Hello');assert.ok(word);
+  word.focus=()=>{focuses++;};word.onclick();await waitUntil(()=>!!resolveLookup);
+  assert.equal(nodes.get('wordcard').open,true);assert.equal(nodes.get('wordTitle').textContent,'Hello');
+  assert.equal(nodes.get('definitions').textContent,'正在查词…');
+  let prevented=false;events.get('keydown')({key:'o',code:'KeyO',altKey:true,shiftKey:true,preventDefault(){prevented=true;},stopPropagation(){}});
+  assert.equal(prevented,false);
+  nodes.get('wordcard').oncancel({preventDefault(){}});
+  assert.equal(nodes.get('wordcard').open,false);assert.equal(focuses,1);
+  resolveLookup({entry:{phonetic:'/late/',meanings:[]}});await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(nodes.get('phonetic').textContent,'');
+  word.onclick();await waitUntil(()=>nodes.get('wordcard').open);
+  resolveLookup({entry:{phonetic:'/həˈləʊ/',meanings:[{partOfSpeech:'interjection',definition:'A greeting'}]}});
+  await waitUntil(()=>nodes.get('phonetic').textContent==='/həˈləʊ/');
+  assert.match(nodes.get('definitions').children[0].textContent,/A greeting/);
+  nodes.get('closeWord').onclick();assert.equal(focuses,2);
+  (await storage.ready).close();
+});
