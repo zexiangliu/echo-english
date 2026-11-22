@@ -1600,7 +1600,12 @@
   async function deleteRecording(value) {
     if(!value || (mode!=='idle' && mode!=='replay')) return;
     if(mode==='replay')stop();
-    const selectedId=take?.id===value.id ? undefined : take?.id;
+    // The recording browser may be on a different sentence than practice.
+    // Keep its version group selected rather than falling back to currentCueKey().
+    const sameSegment=videoHistory.find(t=>t.id!==value.id && t.cueKey===value.cueKey);
+    const queue=EchoPractice.recordingQueue(videoHistory),position=queue.findIndex(t=>t.cueKey===value.cueKey);
+    const neighbor=queue[position+1] || queue[position-1];
+    const selectedId=take?.id===value.id?(sameSegment?.id || neighbor?.id):take?.id;
     const id=videoId; mode='saving';controls();
     await storage.deleteTake(value.id);
     if(id!==videoId) return;
@@ -1613,7 +1618,7 @@
     const value=deletedTake,id=videoId;mode='saving';controls();
     await storage.saveTake(value,{maxTakes:0});
     if(id!==videoId) return;
-    deletedTake=null;$('undoDelete').hidden=true;mode='idle';await refreshHistory(value.id);status('已恢复录音。');
+    deletedTake=null;$('undoDelete').hidden=true;mode='idle';await refreshHistory(value.id);await saveProgress();status('已恢复录音。');
   });
   // Persist to the captured video even if YouTube navigated while recording.
   // UI updates are restricted to the video that is still open.

@@ -3224,3 +3224,27 @@ test('returning a recording whose subtitle was replaced retains a custom range i
   assert.equal(nodes.get('clipCue').value,'');assert.equal(nodes.get('position').textContent,'手动片段');assert.equal(Number(nodes.get('start').value),5.2);assert.equal(Number(nodes.get('end').value),9.8);
   assert.equal((await storage.listTakes('video'))[0].cueKey,cueKey({start:5,end:10,text:'Original words'}));(await storage.ready).close();
 });
+
+
+test('deleting a version stays in the recording segment even when practice is on another sentence',async()=>{
+  const storage=createStorage(new IDBFactory()),cues=[{key:'first',start:0,end:5,text:'First'},{key:'second',start:10,end:15,text:'Second'}];
+  await storage.saveSession({videoId:'video',index:0,start:0,end:5,cues,speed:'1'});
+  const base={videoId:'video',speed:1,capture:'vocal',blob:new Blob(['voice'])};
+  await storage.saveTake({...base,id:'first-take',cueKey:'first',label:'First',start:0,end:5,createdAt:1});
+  for(const [id,createdAt] of [['second-old',2],['second-new',3]])await storage.saveTake({...base,id,cueKey:'second',label:'Second',start:10,end:15,createdAt});
+  const {nodes}=await mount(storage);nodes.get('tab-recordings').onclick();
+  await nodes.get('historyList').children[1].children[0].onclick();
+  assert.match(nodes.get('deleteTake').title,/Second/);
+  await nodes.get('deleteTake').onclick();
+  assert.match(nodes.get('historyInfo').textContent,/Second/);
+  assert.equal(nodes.get('historyList').children[1].children[0].attrs['aria-pressed'],'true');
+  assert.equal((await storage.getSession('video')).selectedTakeId,'second-old');
+  assert.equal(nodes.get('start').value,0,'practice selection is not changed by deleting a recording version');
+  assert.equal(nodes.get('versionChoices').children.length,1);
+  await nodes.get('undoDelete').onclick();assert.equal((await storage.getSession('video')).selectedTakeId,'second-new');
+  await nodes.get('deleteTake').onclick();await nodes.get('deleteTake').onclick();
+  assert.match(nodes.get('historyInfo').textContent,/First/);
+  assert.equal((await storage.listTakes('video')).length,1);
+  await nodes.get('undoDelete').onclick();assert.match(nodes.get('historyInfo').textContent,/Second/);
+  (await storage.ready).close();
+});
