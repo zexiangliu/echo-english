@@ -2,7 +2,7 @@
 // playback cannot change the buttons or report errors against a newer one.
 (function(root){
   const practice=typeof module!=='undefined'?require('./practice.js'):root.EchoPractice;
-  function attach({pauseButton,speedControl,speedInput,volumeControl,volumeInput,volumeValue,clock,getSpeed,onSpeed,onError}){
+  function attach({pauseButton,speedControl,speedInput,volumeControl,volumeInput,volumeValue,clock,getSpeed,onSpeed,onError,onVolumeChange=()=>{}}){
     let owner=null,paused=false,changing=false,changeTask=null;
     function renderVolume(){
       if(!volumeControl)return;
@@ -10,6 +10,7 @@
       volumeControl.hidden=!media;volumeInput.disabled=!media;
       const level=media?.muted?0:Number.isFinite(media?.volume)?media.volume:1;
       volumeInput.value=String(level);volumeValue.textContent=`${Math.round(level*100)}%`;
+      if(media)onVolumeChange();
     }
     function render(){
       pauseButton.hidden=!owner;pauseButton.disabled=!owner || changing;

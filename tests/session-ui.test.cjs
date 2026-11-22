@@ -2939,13 +2939,17 @@ for(const shifted of [false,true])test(`simultaneous comparison ${shifted?'uses 
   assert(Math.abs(video.currentTime-5.2)<.001);assert.equal(video.paused,false);
   assert.equal(nodes.get('originalVolumeControl').hidden,false);assert.equal(nodes.get('replayMusicOption').hidden,true);assert.equal(backings,0);
   assert.match(nodes.get('transportLabel').textContent,/原声＋录音/);
+  assert.ok(nodes.get('replayOriginalSlot').children.includes(nodes.get('originalVolumeControl')));
   nodes.get('originalVolume').value='.25';nodes.get('originalVolume').oninput();assert.equal(video.volume,.25);
+  assert.match(nodes.get('mixSummary').textContent,/原曲 25%/);
   nodes.get('replayVocalVolume').value='1.3';nodes.get('replayVocalVolume').oninput();assert.equal(vocalGain,1.3);
+  nodes.get('resetReplayMix').onclick();assert.equal(video.volume,1);assert.equal(vocalGain,1);assert.match(nodes.get('mixSummary').textContent,/原曲 100%/);
   await nodes.get('pausePlayback').onclick();assert.equal(video.paused,true);assert.equal(sound.paused,true);
   nodes.get('transportProgress').value='.5';await nodes.get('transportProgress').oninput();assert.equal(sound.currentTime,2.6);assert(Math.abs(video.currentTime-7.4)<.001);
   await nodes.get('pausePlayback').onclick();assert.equal(video.paused,false);assert.equal(sound.paused,false);
   nodes.get('stop').onclick();await comparing;
   assert.equal(video.muted,false);assert.equal(video.playbackRate,1.25);assert.equal(nodes.get('originalVolumeControl').hidden,true);assert.equal(frames.size,0);
+  assert.ok(nodes.get('originalVolumeHome').children.includes(nodes.get('originalVolumeControl')));
   assert.equal(key,shifted?-2:undefined);assert.equal(disposed,shifted?1:0);
   (await storage.ready).close();
 });

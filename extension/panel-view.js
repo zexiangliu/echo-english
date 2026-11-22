@@ -200,12 +200,13 @@
     <div id="defaultPlaybackSlot"><section id="playbackControls" class="playback-controls" aria-label="回放进度与音量"><div id="transport" class="transport" hidden>
       <div class="transport-heading"><span id="transportLabel"></span><div class="transport-options"><button id="skipInstrumental" class="text-button" hidden disabled>⏭ 跳过前奏</button><label id="originalLoopControl" class="check" title="循环播放当前范围" hidden><input id="originalLoop" type="checkbox" aria-label="循环播放当前范围">循环</label><label id="playbackSpeedControl" class="playback-speed" hidden>速度<select id="playbackSpeed" aria-label="当前播放速度">${speedOptions}</select></label></div><span id="transportTime"></span></div>
       <input id="transportProgress" type="range" min="0" max="1" step="0.001" value="0" aria-label="播放进度，可点击或拖动跳转" style="display:block;width:100%;margin:6px 0;accent-color:#b3eedb" disabled>
-      <label id="originalVolumeControl" class="mix-row" hidden><span id="originalVolumeLabel">原声</span><input id="originalVolume" type="range" min="0" max="1" step="0.01" value="1" aria-label="原曲／原声音量"><output id="originalVolumeValue" for="originalVolume">100%</output></label>
+      <div id="originalVolumeHome"><label id="originalVolumeControl" class="mix-row" hidden><span id="originalVolumeLabel">原声</span><input id="originalVolume" type="range" min="0" max="1" step="0.01" value="1" aria-label="原曲／原声音量"><output id="originalVolumeValue" for="originalVolume">100%</output></label></div>
     </div>
     <details id="mixControls" class="mix-controls" hidden>
       <summary id="mixToggle">回听音量<span id="mixSummary">人声 100% · 伴奏 100%</span></summary>
       <div class="mix-body" role="group" aria-label="回听音量设置"><div class="mix-options"><label id="replayMusicOption" class="check" hidden><input id="replayWithBacking" type="checkbox" checked><span id="replayBackingOptionLabel">回听带伴奏</span></label><button id="resetReplayMix" class="text-button">重置音量</button><button id="closeReplayMix" class="compact">完成</button></div>
       <label class="mix-row"><span id="replayVocalLabel">人声</span><input id="replayVocalVolume" type="range" min="0" max="2" step="0.05" value="1" aria-label="回听人声音量"><output id="replayVocalValue" for="replayVocalVolume">100%</output></label>
+      <div id="replayOriginalSlot"></div>
       <label id="replayBackingRow" class="mix-row"><span id="replayBackingLabel">伴奏</span><input id="replayBackingVolume" type="range" min="0" max="2" step="0.05" value="1" aria-label="回听伴奏音量"><output id="replayBackingValue" for="replayBackingVolume">100%</output></label>
       <p id="mixHint" class="hint"></p></div>
     </details></section></div>

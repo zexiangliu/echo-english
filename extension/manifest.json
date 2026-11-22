@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Echo · 配音与唱歌练习",
-  "version": "0.36.15",
+  "version": "0.36.16",
   "description": "把喜欢的 YouTube 对白和歌曲变成自己的声音：多语言原文、逐句练习、伴奏录唱和录音对比。",
   "action": {
     "default_title": "打开 / 收起配音练习",

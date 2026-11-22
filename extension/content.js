@@ -53,6 +53,7 @@
   const playbackActions=EchoPlaybackControls.attach({
     pauseButton:$('pausePlayback'),speedControl:$('playbackSpeedControl'),speedInput:$('playbackSpeed'),volumeControl:$('originalVolumeControl'),volumeInput:$('originalVolume'),volumeValue:$('originalVolumeValue'),clock:playback,
     getSpeed:()=>$('speed').value,
+    onVolumeChange:()=>renderMixControls(),
     onSpeed:speed=>{$('speed').value=String(speed);updateSummaries();saveProgress();},
     onError:error=>{stop();status(error.message || String(error));}
   });
@@ -584,11 +585,14 @@
     else if(ready)$('karaokeInfo').textContent='';
     else $('karaokeInfo').textContent=serviceState==='online'?'':serviceState==='offline'?'本机分离服务未连接。请查看设置顶部的启动说明，启动后点击“重新检测”。已有音频和录音仍可使用。':`首次使用需准备本机分离服务，点击底部“生成${name}”查看。`;
   }
+  let originalVolumeSlot='originalVolumeHome';
   function clampGain(value) {return Number.isFinite(Number(value))?Math.max(0,Math.min(2,Number(value))):1;}
   function replayMix() {
     return {vocal:clampGain($('replayVocalVolume').value),backing:clampGain($('replayBackingVolume').value)};
   }
   function renderMixControls() {
+    const slot=replayOriginal?'replayOriginalSlot':'originalVolumeHome';
+    if(originalVolumeSlot!==slot){$(slot).append($('originalVolumeControl'));originalVolumeSlot=slot;}
     const target=replayTake || (currentPage==='recordings'?take:currentPage==='practice'?(isSinging()?songTake:take):null);
     // These gains belong to saved recordings, never to the original video
     // or accompaniment preview currently occupying the shared transport.
@@ -613,10 +617,12 @@
     $('replayWithBacking').disabled=!editable || !ready;
     $('replayBackingRow').hidden=!hasBackground;
     $('replayBackingVolume').disabled=!editable || !ready;
-    $('mixSummary').textContent=`${target.withBacking?'总音量':'人声'} ${Math.round(vocal*100)}%${hasBackground?` · ${name}${$('replayWithBacking').checked?' '+Math.round(backing*100)+'%':'关'}`:''}`;
+    const originalName=target.kind==='song'?'原曲':'原声';
+    if(replayOriginal)$('originalVolumeLabel').textContent=originalName;
+    $('mixSummary').textContent=`${target.withBacking?'总音量':'人声'} ${Math.round(vocal*100)}%${replayOriginal?` · ${originalName} ${$('originalVolumeValue').textContent}`:hasBackground?` · ${name}${$('replayWithBacking').checked?' '+Math.round(backing*100)+'%':'关'}`:''}`;
     $('mixHint').textContent=target.withBacking?'旧版混合录音只能调整总音量，无法分别调节人声和伴奏。':hasBackground?
       ready?'混合下载沿用此比例，原始人声不变。':`暂无可用${name}，当前仅回听人声。`:'只影响回听，原始录音不变。';
-    if(replayOriginal)$('mixHint').textContent='原声与录音一起播放：原声音量在进度条下调节，此处调整录音人声音量；不额外叠加伴奏。';
+    if(replayOriginal)$('mixHint').textContent='原声与录音一起播放：在此分别调节两路音量。原声只用于回听，混合导出仍使用伴奏。';
     if(!editable)$('mixHint').textContent='当前未播放录音；此音量只用于录音回听及混合导出。';
     if(replayTake && replayVoiceMax===1)$('mixHint').textContent+=' 当前人声音量最高为 100%。';
   }
@@ -632,6 +638,7 @@
   }
   $('resetReplayMix').onclick=()=>{
     $('replayVocalVolume').value=1;$('replayBackingVolume').value=1;
+    if(replayOriginal){$('originalVolume').value='1';$('originalVolume').oninput();}
     updateReplayMix();saveProgress();
   };
   function setSongTake(value) {
