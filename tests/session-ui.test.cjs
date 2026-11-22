@@ -1287,20 +1287,39 @@ for(const withBacking of [false,true])for(const leadMode of ['seconds','previous
     EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(options){
       assert.equal(withBacking,true);assert.equal(video.plays.length,0);
       assert.equal(options.speed,1);assert.equal(options.initialPosition,10);assert.equal(options.fadeInSeconds,.04);
-      return {async sync(position){assert.equal(position,10);assert.equal(starts.length,1);},pause(){},dispose(){},setVolume(){}};
+      return {async sync(position){assert.equal(position,10);assert.equal(starts.length,1);setTimeout(()=>video.advance(11),60);},pause(){},dispose(){},setVolume(){}};
     }},
     requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
   assert.equal(nodes.get('leadInSeconds').value,3);
   await nodes.get('record').onclick();
-  assert.deepEqual(video.plays,[{at:leadMode==='previous'?5:7,muted:false},{at:10,muted:true}]);assert.deepEqual(starts,[10]);
+  assert.deepEqual(video.plays,withBacking?[{at:leadMode==='previous'?5:7,muted:false}]:[{at:leadMode==='previous'?5:7,muted:false},{at:10,muted:true}]);assert.deepEqual(starts,[10]);
   assert.deepEqual(video.seeks,[leadMode==='previous'?5:7]);
-  const [take]=await storage.listTakes('video');assert.equal(take.start,10);assert.equal(take.end,11);assert.equal(take.speed,1);assert.deepEqual(rates,[1,1]);assert.equal(nodes.get('speed').value,'0.5');
+  const [take]=await storage.listTakes('video');assert.equal(take.start,10);assert.equal(take.end,11);assert.equal(take.speed,1);assert.deepEqual(rates,withBacking?[1]:[1,1]);assert.equal(nodes.get('speed').value,'0.5');
   assert.equal(await take.blob.text(),'only-target-vocal');assert.equal(video.muted,true);assert.equal(video.playbackRate,1.25);
   assert.equal(video.volume,.7);
   nodes.get('leadInSeconds').value='5';nodes.get('leadInSeconds').onchange();
   await new Promise(r=>setTimeout(r,5));assert.equal((await storage.getSession('video')).leadInSeconds,5);
   (await storage.ready).close();
 });
+test('backing handoff keeps the original and video running until delayed monitor playback is ready',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let releaseMonitor,pauses=0;
+  video.volume=.7;video.pause=()=>{pauses++;};
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'clip'},recordingPlaybackPreferences:{sing:'backing'},start:10,end:15,speed:'1',cues:[],leadInMode:'seconds',leadInSeconds:3,backingVolume:.4});
+  await storage.saveBacking({key:'music',videoId:'video',start:0,end:60,createdAt:1,blob:new Blob(['music'])});
+  class MediaRecorder{static isTypeSupported(){return true;}constructor(){this.state='inactive';this.mimeType='audio/webm';}
+    start(){this.state='recording';}stop(){this.state='inactive';this.ondataavailable({data:new Blob(['voice'])});queueMicrotask(()=>this.onstop());}}
+  const {nodes}=await mount(storage,{video,globals:{MediaRecorder,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}},
+    EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(){return {sync(position,options){assert.equal(position,10.016);assert.equal(options.followVideo,true);return new Promise(resolve=>{releaseMonitor=resolve;});},position:()=>10,pause(){},dispose(){},setVolume(){}};}},
+    requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  const pending=nodes.get('record').onclick();await waitUntil(()=>video.plays.length===1);
+  const before=pauses;video.advance(10.016);await waitUntil(()=>!!releaseMonitor);
+  assert.equal(pauses,before);assert.equal(video.muted,false);assert.equal(video.volume,.4);
+  assert.deepEqual(video.seeks,[7]);assert.equal(video.plays.length,1);
+  video.advance(10.25);releaseMonitor();await waitUntil(()=>video.muted);
+  assert.equal(video.currentTime,10.25);assert.equal(pauses,before);assert.equal(video.plays.length,1);assert.equal(video.volume,.7);
+  nodes.get('stop').onclick();await pending;(await storage.ready).close();
+});
+
 test('stopping during the lead-in cancels preparation, releases the mic and saves no empty take',async()=>{
   const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let stops=0,starts=0;video.volume=.7;
   await storage.saveSession({videoId:'video',start:10,end:11,speed:'1',cues:[],leadInSeconds:3,backingVolume:.4});

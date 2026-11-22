@@ -115,6 +115,18 @@ test('lead-in fade follows media time at practice speed and restores the origina
   stale();assert.equal(video.volume,.7);
 });
 
+test('lead-in fades only when the incoming monitor is ready, even after the recording boundary',()=>{
+  const {createLeadInOutput}=require('../extension/karaoke.js'),frames=new Map();let id=0;
+  const env={requestAnimationFrame(fn){frames.set(++id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);}};
+  const video={currentTime:10.1,volume:.8};
+  const output=createLeadInOutput(video,{volume:.6,end:10},env);
+  assert.equal(video.volume,.6);assert.equal(frames.size,0);
+  output.fadeOut(.04);video.currentTime=10.12;
+  const [key,tick]=frames.entries().next().value;frames.delete(key);tick();
+  assert.ok(Math.abs(video.volume-.3)<.001);
+  output.dispose();assert.equal(video.volume,.8);assert.equal(frames.size,0);
+});
+
 test('monitor prepositions before playback and fades only the first handoff without changing the vocal stream',async()=>{
   const gains=[],events=[],seeks=[];let music;
   class Context{
@@ -130,7 +142,8 @@ test('monitor prepositions before playback and fades only the first handoff with
     load(){queueMicrotask(()=>this.oncanplay?.());}async play(){events.push('play');}pause(){}removeAttribute(){}
   }
   const env={AudioContext:Context,Audio,URL:{createObjectURL:()=> 'blob:music',revokeObjectURL(){}},setTimeout,clearTimeout};
-  const monitor=await createMonitor({blob:new Blob(),video:{currentTime:20},start:10,speed:1,initialPosition:20,fadeInSeconds:.04,volume:1.4},env);
+  const video={currentTime:20};
+  const monitor=await createMonitor({blob:new Blob(),video,start:10,speed:1,initialPosition:20,fadeInSeconds:.04,volume:1.4},env);
   assert.deepEqual(seeks,[10]);assert.equal(gains[0].gain.value,1.4);assert.equal(gains[1].gain.value,0);
   assert.equal(events.length,0);
   await monitor.sync(20);assert.deepEqual(seeks,[10]);
@@ -138,6 +151,8 @@ test('monitor prepositions before playback and fades only the first handoff with
   monitor.setVolume(.6);assert.equal(gains[0].gain.value,.6);
   monitor.pause();await monitor.sync(21);assert.equal(music.currentTime,11);
   assert.equal(events.filter(event=>Array.isArray(event) && event[0]==='ramp').length,1);
+  video.currentTime=22;
+  await monitor.sync(20,{followVideo:true});assert.equal(music.currentTime,12);
   monitor.dispose();
 });
 

@@ -69,10 +69,10 @@
   // A short envelope changes monitoring only; microphone capture stays dry.
   function createLeadInOutput(video,{volume=1,end,speed=1,fadeOut=false},env=root) {
     const originalVolume=video.volume;
-    let level=1,frame=0,disposed=false;
+    let level=1,frame=0,disposed=false,fadeEnd=fadeOut?end:null,fadeSeconds=0.06;
     function apply(){
-      const remaining=(end-video.currentTime)/speed;
-      video.volume=level*(fadeOut?Math.max(0,Math.min(1,remaining/0.06)):1);
+      const remaining=(fadeEnd-video.currentTime)/speed;
+      video.volume=level*(fadeEnd!==null?Math.max(0,Math.min(1,remaining/fadeSeconds)):1);
     }
     function setVolume(value){
       if(disposed)return;
@@ -82,7 +82,10 @@
     }
     function tick(){if(disposed)return;apply();frame=env.requestAnimationFrame(tick);}
     setVolume(volume);if(fadeOut)frame=env.requestAnimationFrame(tick);
-    return {setVolume,dispose(){
+    return {setVolume,fadeOut(seconds=0.04){
+      if(disposed)return;fadeSeconds=Math.max(0.01,seconds);fadeEnd=video.currentTime+fadeSeconds*speed;
+      if(!frame)frame=env.requestAnimationFrame(tick);
+    },dispose(){
       if(disposed)return;disposed=true;if(frame)env.cancelAnimationFrame(frame);
       if(Number.isFinite(originalVolume))video.volume=originalVolume;
     }};
@@ -116,12 +119,15 @@
       music.playbackRate=speed;
       if(Number.isFinite(initialPosition))music.currentTime=Math.max(0,initialPosition-start);
       return {setVolume:value=>setGain(gain,value),
-        async sync(position=video.currentTime){
+        async sync(position=video.currentTime,{followVideo=false}={}){
           if(disposed)return;
           const target=Math.max(0,position-start);
           if(!Number.isFinite(music.currentTime) || Math.abs(music.currentTime-target)>0.01)music.currentTime=target;
           await music.play();
           if(disposed)return;
+          // play() can wait for device/decoder startup. Keep a running video
+          // as the clock rather than replaying that startup delay behind it.
+          if(followVideo && Math.abs(start+music.currentTime-video.currentTime)>0.03)music.currentTime=Math.max(0,video.currentTime-start);
           if(fading){
             fading=false;const now=context.currentTime;
             fade.gain.setValueAtTime(0,now);fade.gain.linearRampToValueAtTime(1,now+Math.min(0.15,fadeInSeconds));

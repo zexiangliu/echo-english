@@ -862,7 +862,7 @@
     output.token=token;referenceOutput=output;return output.media;
   }
   function leadInStart(r){return EchoPractice.leadInStart(r.start,$('leadInSeconds').value,{mode:$('leadInMode').value,cues});}
-  async function playRecordingLeadIn(v,r,token,start){
+  async function playRecordingLeadIn(v,r,token,start,{continuous=false}={}){
     if(start>=r.start)return false;
     const media=await referenceMedia(v,{start,end:r.start},token);
     mode='lead-in';controls();media.muted=false;media.playbackRate=r.speed;
@@ -872,18 +872,18 @@
     update();media.addEventListener('timeupdate',update);
     let completed=false,output=null;
     try{
-      output=EchoKaraoke.createLeadInOutput(media,{volume:Number($('backingVolume').value),end:r.start,speed:r.speed,fadeOut:!!recordingSession?.monitor},globalThis);leadInOutput=output;
+      output=EchoKaraoke.createLeadInOutput(media,{volume:Number($('backingVolume').value),end:r.start,speed:r.speed,fadeOut:false},globalThis);leadInOutput=output;
       await media.play();
       if(token!==generation)return false;
       await new Promise((resolve,reject)=>{
         playback.onCancel(resolve);
         showVideoTransport('准备录音 · 前置原声',media,{start,end:r.start,speed:r.speed});
-        playback.watchEnd(media,r.start,()=>{media.pause();resolve();});
+        playback.watchEnd(media,r.start,()=>{if(!continuous || media!==v)media.pause();resolve();});
         playback.timeout(()=>{media.pause();reject(Error('前置播放超时，请检查视频后重试。'));},EchoPractice.playbackTimeout({start,end:r.start,speed:r.speed}));
       });
       completed=true;
     }finally{
-      output?.dispose();if(leadInOutput===output)leadInOutput=null;
+      if(!continuous || !completed || media!==v){output?.dispose();if(leadInOutput===output)leadInOutput=null;}
       media.removeEventListener('timeupdate',update);
       if(token===generation){playback.cancel();if(!completed)transport.hide();}
     }
@@ -1719,16 +1719,15 @@
     if(!active())return false;
     saveVideo(v);v.playbackRate=r.speed;
     if(preparationStart<r.start)session.startMeter();
-    await playRecordingLeadIn(v,r,token,preparationStart);
+    await playRecordingLeadIn(v,r,token,preparationStart,{continuous:!!ready && !pitchAtCapture});
     if(!active())return false;
     const reference=source==='original'?await referenceMedia(v,r,token,pitchAtCapture):v;
     if(!active())return false;
     if(source!=='original'){referenceOutput?.dispose();referenceOutput=null;}
-    v.muted=source!=='original';
-    // The lead-in normally pauses at this position already. Re-seeking even
-    // there can flush YouTube's buffer and interrupt the beat at the handoff.
-    // The shared seek still corrects overshoots beyond its 30 ms tolerance.
-    await seek(v,r.start,token);
+    // Keep the original audible while the prepared monitor starts. Pausing
+    // YouTube here still causes a gap even if its position does not change.
+    const continuous=!!ready && !!leadInOutput && !v.seeking && v.currentTime>=r.start && v.currentTime-r.start<0.1;
+    if(!continuous){v.muted=source!=='original';leadInOutput?.dispose();leadInOutput=null;await seek(v,r.start,token);}
     if(!active())return false;
     // Every mode starts capture before playback; startup latency must not
     // consume the selected range. The offset records any microphone pre-roll.
@@ -1739,17 +1738,22 @@
     status('录音已启动，正在准备同步播放…');
     v.addEventListener('waiting',onWaiting);v.addEventListener('playing',onPlaying);v.addEventListener('timeupdate',observePosition);
     if(ready){
-      await session.monitor.sync(r.start);
+      await session.monitor.sync(continuous?v.currentTime:r.start,{followVideo:continuous});
       vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-((session.monitor.position?.() ?? r.start)-r.start)/r.speed);
     }
     if(!active())return session.completed;
-    await reference.play();
+    if(continuous){
+      leadInOutput.fadeOut?.(0.04);
+      await playback.delay(40);
+      if(!active())return session.completed;
+      v.muted=true;leadInOutput?.dispose();leadInOutput=null;
+    }else await reference.play();
     if(!active())return session.completed;
     if(!ready)vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-(v.currentTime-r.start)/r.speed);
     starting=false;
     if(session.state==='paused'){await session.monitor?.resume?.();if(!active())return session.completed;session.resume();}
     const position=session.monitor?.position?.();
-    if(Number.isFinite(position) && Math.abs(v.currentTime-position)>0.15)v.currentTime=position;
+    if(!continuous && Number.isFinite(position) && Math.abs(v.currentTime-position)>0.15)v.currentTime=position;
     $('sidetoneLatency').textContent=EchoMicrophone.describeMonitoring(session.sidetoneInfo);
     status(source==='original'?'● 正在录制人声，原曲／原声仅作参考播放…':ready?'● 正在录制人声，伴奏仅在耳机播放…':singingTake?'● 正在录制清唱人声…':'● 正在配音，视频原声已静音…');
     const endRecording=()=>{if(!active())return;cancelPlayback();restoreVideo();mode='saving';controls();session.stop();};
