@@ -1602,7 +1602,9 @@
     if(mode==='replay')stop();
     // The recording browser may be on a different sentence than practice.
     // Keep its version group selected rather than falling back to currentCueKey().
-    const sameSegment=videoHistory.find(t=>t.id!==value.id && t.cueKey===value.cueKey);
+    const versions=videoHistory.filter(t=>t.cueKey===value.cueKey).sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+    const versionIndex=versions.findIndex(t=>t.id===value.id);
+    const sameSegment=versions[versionIndex+1] || versions[versionIndex-1];
     const queue=EchoPractice.recordingQueue(videoHistory),position=queue.findIndex(t=>t.cueKey===value.cueKey);
     const neighbor=queue[position+1] || queue[position-1];
     const selectedId=take?.id===value.id?(sameSegment?.id || neighbor?.id):take?.id;

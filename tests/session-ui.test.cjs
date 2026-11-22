@@ -3248,3 +3248,21 @@ test('deleting a version stays in the recording segment even when practice is on
   await nodes.get('undoDelete').onclick();assert.match(nodes.get('historyInfo').textContent,/Second/);
   (await storage.ready).close();
 });
+
+
+test('deleting a version selects its next displayed neighbor, with the previous version as the last-version fallback',async()=>{
+  const storage=createStorage(new IDBFactory());
+  const base={videoId:'video',cueKey:'same',label:'Segment',start:0,end:5,speed:1,blob:new Blob(['voice'])};
+  // Equal timestamps also follow the same ID tie-breaker as the version buttons.
+  for(const id of ['a','b','c','d'])await storage.saveTake({...base,id,createdAt:1},{maxTakes:0});
+  const {nodes}=await mount(storage);nodes.get('tab-recordings').onclick();
+  await nodes.get('versionChoices').children[1].onclick();await nodes.get('deleteTake').onclick();
+  assert.equal((await storage.getSession('video')).selectedTakeId,'c');
+  assert.equal(nodes.get('versionChoices').children[1].attrs['aria-pressed'],'true');
+  await nodes.get('deleteTake').onclick();assert.equal((await storage.getSession('video')).selectedTakeId,'d');
+  await nodes.get('deleteTake').onclick();assert.equal((await storage.getSession('video')).selectedTakeId,'a');
+  await nodes.get('undoDelete').onclick();assert.equal((await storage.getSession('video')).selectedTakeId,'d');
+  await nodes.get('versionChoices').children[0].onclick();await nodes.get('deleteTake').onclick();
+  assert.equal((await storage.getSession('video')).selectedTakeId,'d');
+  (await storage.ready).close();
+});
