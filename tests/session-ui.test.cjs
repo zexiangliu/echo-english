@@ -3362,3 +3362,39 @@ for(const pitch of [0,2])test(`original reference keeps its volume and transport
   nodes.get('stop').onclick();await pending;assert.equal(video.volume,.65);
   (await storage.ready).close();
 });
+
+for(const kind of ['song','speech'])test(`assembly can adjust all selected intervals of one ${kind} take without changing other versions`,async()=>{
+  const storage=createStorage(new IDBFactory()),requests=[],base={videoId:'video',capture:'vocal',speed:1,blob:new Blob(['voice']),...(kind==='song'?{kind:'song'}:{})};
+  await storage.saveSession({videoId:'video',activity:kind==='song'?'sing':'speech'});
+  for(const [id,start,end,createdAt] of [['A',0,20,1],['B',5,10,2],['C',12,15,3]])await storage.saveTake({...base,id,cueKey:id,label:id,start,end,createdAt});
+  const {nodes}=await mount(storage,{video:{duration:20,pause(){}},globals:{setTimeout:(fn,ms)=>setTimeout(fn,ms===30000?0:ms),EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['mix']),gaps:[]};}}}});
+  await nodes.get('assembleSong').onclick();
+  const rows=nodes.get('assemblyEditorList').children,adjust=i=>rows[i].children[0].children[2].onclick(),set=(id,value)=>{nodes.get(id).value=String(value);nodes.get(id).onchange();};
+  rows[1].children[1].children[1].children[0].onclick(); // Choose A over B in the overlap.
+  adjust(2);set('assemblyLocalDelay',70);set('assemblyLocalVolume',80);nodes.get('closeAssemblyAdjust').onclick();
+  adjust(0);set('assemblyLocalScope','take');assert.match(nodes.get('assemblyLocalScopeHint').textContent,/4 个区间/);
+  set('assemblyLocalVolume',120);set('assemblyLocalFadeIn',.1);set('assemblyLocalFadeOut',.2);
+  await nodes.get('assemblyLocalPreview').onclick();
+  const whole=requests.at(-1);assert.equal(whole.origin,0);assert.equal(whole.duration,20);
+  assert.deepEqual(whole.selection.map(s=>s.takeId),['A','A','A','A']);
+  assert.ok(whole.selection.every(s=>s.adjustment.volume===1.2));
+  assert.deepEqual(whole.selection.map(s=>s.adjustment.delayMs),[0,0,70,0],'changing volume preserves distinct alignment values');
+  assert.deepEqual(whole.selection.map(s=>s.adjustment.fadeInSeconds),[.1,0,0,0]);
+  assert.deepEqual(whole.selection.map(s=>s.adjustment.fadeOutSeconds),[0,0,0,.2]);
+  await nodes.get('assemblyLocalContext').onclick();assert.ok(requests.at(-1).selection.some(s=>s.takeId==='C'));
+  nodes.get('closeAssemblyAdjust').onclick();await nodes.get('assemblyDownload').onclick();
+  assert.equal(requests.at(-1).selection.find(s=>s.takeId==='C').adjustment,undefined);
+  set('assemblyScope','custom');set('assemblyStart',6);set('assemblyEnd',16);
+  adjust(1);set('assemblyLocalScope','take');set('assemblyLocalDelay',-20);
+  await nodes.get('assemblyLocalPreview').onclick();
+  const clip=requests.at(-1);assert.equal(clip.origin,6);assert.equal(clip.duration,10);
+  assert.deepEqual(clip.selection.map(s=>s.adjustment.delayMs),[-20,-20,-20]);
+  nodes.get('closeAssemblyAdjust').onclick();set('assemblyScope','whole');
+  adjust(0);assert.equal(nodes.get('assemblyLocalDelay').value,0,'an interval outside the custom export range is untouched');
+  set('assemblyLocalScope','take');nodes.get('assemblyLocalReset').onclick();await nodes.get('assemblyLocalPreview').onclick();
+  assert.ok(requests.at(-1).selection.every(s=>!s.adjustment));
+  nodes.get('closeAssembly').onclick();await nodes.get('assembleSong').onclick();
+  nodes.get('assemblyEditorList').children[1].children[0].children[2].onclick();assert.equal(nodes.get('assemblyLocalVolume').value,100);
+  assert.ok((await storage.listTakes('video')).every(t=>!t.effects));
+  nodes.get('closeAssembly').onclick();(await storage.ready).close();
+});

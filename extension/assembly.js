@@ -108,7 +108,7 @@
       $('assemblyUseAudition').disabled=busy || !!auditionSelected;
       $('assemblyUseAudition').textContent=auditionSelected?'已选用':'选用试听版本';
       dialog.setAttribute('aria-busy',String(busy));
-      for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalVolumeSlider','assemblyLocalQuieter','assemblyLocalLouder','assemblyLocalFadeIn','assemblyLocalFadeOut','assemblyLocalEarlier','assemblyLocalLater','assemblyLocalReset','assemblyLocalPreview','assemblyLocalContext'])$(id).disabled=busy;
+      for(const id of ['assemblyLocalScope','assemblyLocalDelay','assemblyLocalVolume','assemblyLocalVolumeSlider','assemblyLocalQuieter','assemblyLocalLouder','assemblyLocalFadeIn','assemblyLocalFadeOut','assemblyLocalEarlier','assemblyLocalLater','assemblyLocalReset','assemblyLocalPreview','assemblyLocalContext'])$(id).disabled=busy;
       $('assemblyLocalCancel').hidden=!busy;
     }
     function changed(){revision++;clearAudio();$('assemblyEditorMessage').textContent='选择已更新，请重新试听。';onChange(choices(rows));update();}
@@ -152,25 +152,28 @@
           item.append(choose,play,star);candidates.append(item);row.options.push({take,choose,play,badge,heading,star});
         }
         const actions=element('div',undefined,'assembly-row-actions');row.actions=actions;row.summary=element('small');row.adjust=element('button','微调此段','assembly-adjust-button');
-        row.adjust.title='微调当前选中的录音，仅影响此区间';row.adjust.setAttribute('aria-haspopup','dialog');
+        row.adjust.title='微调当前区间，或统一调整此录音的所有已选区间';row.adjust.setAttribute('aria-haspopup','dialog');
         row.adjust.onclick=()=>openAdjustment(row);head.append(row.adjust);actions.append(row.summary);
         card.append(head,candidates,actions);$('assemblyEditorList').append(card);
         row.check.onchange=()=>{if(busy)return;row.enabled=row.check.checked;if(row.enabled && row.choice==='auto' && !row.autoId)row.choice=row.candidates[0]?.id || 'auto';changed();};
       }
       update();
     }
-    async function render(action,row=null,auditionId=null,context=false){
+    async function render(action,row=null,auditionId=null,context=false,sourceId=null){
       if(busy || !isOpen())return;
       let range;try{range=exportRange();}catch(error){$('assemblyEditorMessage').textContent=error.message;update();return;}
-      const origin=row?Math.max(row.start-(context?2:0),range.start):range.start,end=row?Math.min(row.end+(context?2:0),range.end):range.end;
+      const sourceRows=sourceId?rows.filter(r=>r.enabled && (r.choice==='auto'?r.autoId:r.choice)===sourceId && r.end>range.start && r.start<range.end):null;
+      if(sourceRows && !sourceRows.length)return;
+      const bounds=sourceRows?{start:sourceRows[0].start,end:sourceRows.at(-1).end}:row;
+      const origin=bounds?Math.max(bounds.start-(context?2:0),range.start):range.start,end=bounds?Math.min(bounds.end+(context?2:0),range.end):range.end;
       if(end<=origin)return;
-      const selected=auditionId?[{...selection(row,auditionId),start:origin,end}]:rangeSelection(context?rows:row?[row]:rows,duration,origin,end),length=end-origin;
+      const selected=auditionId?[{...selection(row,auditionId),start:origin,end}]:rangeSelection(context?rows:sourceRows || (row?[row]:rows),duration,origin,end),length=end-origin;
       try{env.EchoAudioExport.selectedPitch(env.EchoAudioExport.selectionPlan(takes,duration,selected).segments);}
       catch(error){$('assemblyEditorMessage').textContent=error.message;return;}
       if(!selected.some(part=>part.takeId)){$('assemblyEditorMessage').textContent='此范围内没有选中的人声，请先选择录音片段。';return;}
       const token=++revision;busy=true;clearAudio();update();
       const auditionTake=auditionId?row.candidates.find(take=>take.id===auditionId):null;
-      const label=context?`段落衔接 ${title({start:origin,end})}`:auditionTake?`${title({start:origin,end})} · ${auditionTake.label || '人声录音'} · ${pitchLabel(auditionTake)}`:origin===0 && end===duration?(activity==='sing'?'整首拼接':'整段配音'):`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
+      const label=sourceId && !context?`此录音的已选部分 ${title({start:origin,end})}`:context?`段落衔接 ${title({start:origin,end})}`:auditionTake?`${title({start:origin,end})} · ${auditionTake.label || '人声录音'} · ${pitchLabel(auditionTake)}`:origin===0 && end===duration?(activity==='sing'?'整首拼接':'整段配音'):`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
       const active=()=>isOpen() && token===revision;
       try{
         const result=await onRender({selection:selected,origin,duration:length,withMusic:$('assemblyType').value==='mixed',active});
@@ -180,6 +183,7 @@
           audition=auditionTake?{row,id:auditionId}:null;
           url=urlApi.createObjectURL(result.blob);audio.src=url;audio.hidden=false;audio.load?.();$('assemblyAudioLabel').textContent=`试听：${label}`;
           $('assemblyEditorMessage').textContent=auditionTake?'正在试听此候选片段；点击“选用试听版本”才会修改拼接。':context?'已生成前后衔接试听，可在播放器中拖动进度。':row?'已生成本段试听，可在播放器中拖动进度。':'已生成完整拼接，可在播放器中拖动进度。';
+          if(sourceId && !context)$('assemblyEditorMessage').textContent='已生成此录音所有已选部分的试听；未选用此录音的位置保留人声空白。';
           try{await audio.play?.();}catch{if(active())$('assemblyEditorMessage').textContent='试听已准备好，请点击播放器开始播放。';}
         }
       }catch(error){if(active())$('assemblyEditorMessage').textContent=error.message || '拼接失败，请重试。';}
@@ -220,19 +224,35 @@
       if(a.fadeOutSeconds)parts.push(`淡出 ${a.fadeOutSeconds}s`);
       return parts.join(' · ');
     }
+    function adjustmentRows(){
+      if(!editing)return [];
+      if($('assemblyLocalScope').value!=='take')return [editing.row];
+      const range=exportRange();
+      return rows.filter(row=>row.enabled && (row.choice==='auto'?row.autoId:row.choice)===editing.id && row.end>range.start && row.start<range.end);
+    }
     function adjustmentFields(){
       if(!editing)return;
-      const {row,id}=editing,source=row.candidates.find(t=>t.id===id),a=env.EchoAudioExport.segmentAdjustment(row.adjustments.find(a=>a.takeId===id));
+      const {row,id}=editing,source=row.candidates.find(t=>t.id===id),targets=adjustmentRows(),whole=$('assemblyLocalScope').value==='take';
+      const read=part=>env.EchoAudioExport.segmentAdjustment(part.adjustments.find(a=>a.takeId===id));
+      const a=read(row),first=targets[0],last=targets.at(-1);
       $('assemblyLocalDelay').value=a.delayMs;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value=Math.round(a.volume*100);
-      $('assemblyLocalFadeIn').value=a.fadeInSeconds;$('assemblyLocalFadeOut').value=a.fadeOutSeconds;
-      $('assemblyLocalFadeIn').max=$('assemblyLocalFadeOut').max=Math.min(3,row.end-row.start);
+      $('assemblyLocalFadeIn').value=read(first).fadeInSeconds;$('assemblyLocalFadeOut').value=read(last).fadeOutSeconds;
+      $('assemblyLocalFadeIn').max=Math.min(3,first.end-first.start);$('assemblyLocalFadeOut').max=Math.min(3,last.end-last.start);
       const inherited=env.EchoVocalEffects.normalize(source.effects).delayMs;
-      $('assemblyLocalInfo').textContent=`${title(row)} · ${source.label || '人声录音'}`;
-      $('assemblyLocalInherited').textContent=`版本对齐 ${inherited} ms ＋ 本段 ${a.delayMs} ms ＝ ${inherited+a.delayMs} ms（负数提前，正数延后）`;
+      $('assemblyLocalVolumeLabel').textContent=whole?'已选部分人声音量（%）':'本段人声音量（%）';
+      $('assemblyLocalDelayLabel').textContent=whole?'已选部分额外偏移（毫秒）':'本段额外偏移（毫秒）';
+      $('assemblyLocalVolumeSlider').setAttribute('aria-label',whole?'已选部分人声音量滑块':'本段人声音量滑块');
+      $('assemblyLocalInfo').textContent=`${source.label || '人声录音'} · 原片段 ${title(source)} · ${whole?`已选 ${targets.length} 个区间`:title(row)}`;
+      const mixed=whole && targets.some(part=>read(part).delayMs!==a.delayMs || read(part).volume!==a.volume);
+      $('assemblyLocalScopeHint').textContent=whole?`仅修改当前导出范围内选用此录音版本的 ${targets.length} 个区间，不修改其他版本。${mixed?'各区间数值不同，当前显示所点区间的值；只统一你改动的项目。':'只统一你改动的项目。'}`:'只修改当前区间的当前版本；切换候选后分别保留微调。';
+      $('assemblyLocalInherited').textContent=`版本对齐 ${inherited} ms ＋ ${whole?'所点区间':'本段'} ${a.delayMs} ms ＝ ${inherited+a.delayMs} ms（负数提前，正数延后）`;
+      $('assemblyLocalFadeHint').textContent=whole?'淡入只用于首个已选区间，淡出只用于最后一个；修改某项时清除中间区间的同项淡化，避免重复淡入淡出。最长不超过对应边界区间。':'仅影响此段人声，以该区间边界为准，最长不超过本段。混响仍使用本视频的全局设置。';
+      $('assemblyLocalPreview').textContent=whole?'▷ 试听此录音的已选部分':'▷ 试听本段';
+      $('assemblyLocalReset').textContent=whole?'重置此录音所有已选区间的微调':'重置本段微调';
     }
     function openAdjustment(row){
       if(busy)return;const id=row.enabled?(row.choice==='auto'?row.autoId:row.choice):null;if(!id)return;
-      editing={row,id};revision++;clearAudio();
+      editing={row,id};$('assemblyLocalScope').value='interval';revision++;clearAudio();
       $('assemblyLocalPlayer').append($('assemblyPlayer'));adjustmentFields();
       $('assemblyEditorMessage').textContent='只调整此区间的当前版本；原始版本和其他区间保持不变。';
       if(adjustDialog.showModal)adjustDialog.showModal();else adjustDialog.open=true;
@@ -244,23 +264,32 @@
       if(adjustDialog.close)adjustDialog.close();else adjustDialog.open=false;
       update();row.adjust?.focus();
     }
-    function saveAdjustment(){
+    function saveAdjustment(field){
       if(!editing || busy)return;
       const ids=['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut'];
       if(ids.some(id=>$(id).value==='' || !Number.isFinite(Number($(id).value)))){$('assemblyEditorMessage').textContent='请输入有效的微调数值。';return;}
       const a=env.EchoAudioExport.segmentAdjustment({delayMs:Number($('assemblyLocalDelay').value),volume:Number($('assemblyLocalVolume').value)/100,fadeInSeconds:Number($('assemblyLocalFadeIn').value),fadeOutSeconds:Number($('assemblyLocalFadeOut').value)});
-      const {row,id}=editing;a.fadeInSeconds=Math.min(a.fadeInSeconds,row.end-row.start);a.fadeOutSeconds=Math.min(a.fadeOutSeconds,row.end-row.start);row.adjustments=row.adjustments.filter(a=>a.takeId!==id);
-      if(env.EchoAudioExport.adjusted(a))row.adjustments.push({takeId:id,...a});
-      changed();adjustmentFields();$('assemblyEditorMessage').textContent='本段微调已保存，请重新试听确认；完整试听与导出使用相同设置。';
+      const {id}=editing,targets=adjustmentRows(),whole=$('assemblyLocalScope').value==='take';
+      const fields={assemblyLocalDelay:'delayMs',assemblyLocalVolume:'volume',assemblyLocalFadeIn:'fadeInSeconds',assemblyLocalFadeOut:'fadeOutSeconds'};
+      for(const row of targets){
+        const previous=env.EchoAudioExport.segmentAdjustment(row.adjustments.find(a=>a.takeId===id));
+        const next=whole?{...previous,[fields[field]]:a[fields[field]]}:{...a};
+        if(!whole || field==='assemblyLocalFadeIn')next.fadeInSeconds=Math.min(a.fadeInSeconds,whole && row!==targets[0]?0:row.end-row.start);
+        if(!whole || field==='assemblyLocalFadeOut')next.fadeOutSeconds=Math.min(a.fadeOutSeconds,whole && row!==targets.at(-1)?0:row.end-row.start);
+        row.adjustments=row.adjustments.filter(a=>a.takeId!==id);
+        if(env.EchoAudioExport.adjusted(next))row.adjustments.push({takeId:id,...next});
+      }
+      changed();adjustmentFields();$('assemblyEditorMessage').textContent=`${whole?`此录音的 ${targets.length} 个已选区间`:'本段'}微调已保存，请重新试听确认；完整试听与导出使用相同设置。`;
     }
-    for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut'])$(id).onchange=saveAdjustment;
+    $('assemblyLocalScope').onchange=()=>{if(!editing || busy)return;revision++;clearAudio();adjustmentFields();update();$('assemblyEditorMessage').textContent='调整范围已切换，只同步接下来改动的项目。';};
+    for(const id of ['assemblyLocalDelay','assemblyLocalVolume','assemblyLocalFadeIn','assemblyLocalFadeOut'])$(id).onchange=()=>saveAdjustment(id);
     $('assemblyLocalVolumeSlider').oninput=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value;};
-    $('assemblyLocalVolumeSlider').onchange=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value;saveAdjustment();};
-    for(const [id,step] of [['assemblyLocalQuieter',-1],['assemblyLocalLouder',1]])$(id).onclick=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=Number($('assemblyLocalVolume').value)+step;saveAdjustment();};
-    for(const [id,step] of [['assemblyLocalEarlier',-10],['assemblyLocalLater',10]])$(id).onclick=()=>{if(busy || !editing)return;$('assemblyLocalDelay').value=Number($('assemblyLocalDelay').value)+step;saveAdjustment();};
-    $('assemblyLocalReset').onclick=()=>{if(!editing || busy)return;const {row,id}=editing;row.adjustments=row.adjustments.filter(a=>a.takeId!==id);changed();adjustmentFields();};
-    $('assemblyLocalPreview').onclick=()=>editing && render('preview',editing.row);
-    $('assemblyLocalContext').onclick=()=>editing && render('preview',editing.row,null,true);
+    $('assemblyLocalVolumeSlider').onchange=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=$('assemblyLocalVolumeSlider').value;saveAdjustment('assemblyLocalVolume');};
+    for(const [id,step] of [['assemblyLocalQuieter',-1],['assemblyLocalLouder',1]])$(id).onclick=()=>{if(!editing || busy)return;$('assemblyLocalVolume').value=Number($('assemblyLocalVolume').value)+step;saveAdjustment('assemblyLocalVolume');};
+    for(const [id,step] of [['assemblyLocalEarlier',-10],['assemblyLocalLater',10]])$(id).onclick=()=>{if(busy || !editing)return;$('assemblyLocalDelay').value=Number($('assemblyLocalDelay').value)+step;saveAdjustment('assemblyLocalDelay');};
+    $('assemblyLocalReset').onclick=()=>{if(!editing || busy)return;for(const row of adjustmentRows())row.adjustments=row.adjustments.filter(a=>a.takeId!==editing.id);changed();adjustmentFields();};
+    $('assemblyLocalPreview').onclick=()=>editing && render('preview',editing.row,null,false,$('assemblyLocalScope').value==='take'?editing.id:null);
+    $('assemblyLocalContext').onclick=()=>editing && render('preview',editing.row,null,true,$('assemblyLocalScope').value==='take'?editing.id:null);
     $('closeAssemblyAdjust').onclick=closeAdjustment;
     adjustDialog.oncancel=event=>{event.preventDefault();closeAdjustment();};
     $('assemblyLocalCancel').onclick=()=>$('assemblyCancelRender').onclick();
