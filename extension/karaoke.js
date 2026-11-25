@@ -130,7 +130,7 @@
           if(followVideo && Math.abs(start+music.currentTime-video.currentTime)>0.03)music.currentTime=Math.max(0,video.currentTime-start);
           if(fading){
             fading=false;const now=context.currentTime;
-            fade.gain.setValueAtTime(0,now);fade.gain.linearRampToValueAtTime(1,now+Math.min(0.15,fadeInSeconds));
+            fade.gain.setValueAtTime(0,now);fade.gain.linearRampToValueAtTime(1,now+Math.min(0.3,fadeInSeconds));
           }
         },
         async resume(){if(!disposed)await music.play();},

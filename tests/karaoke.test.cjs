@@ -143,11 +143,11 @@ test('monitor prepositions before playback and fades only the first handoff with
   }
   const env={AudioContext:Context,Audio,URL:{createObjectURL:()=> 'blob:music',revokeObjectURL(){}},setTimeout,clearTimeout};
   const video={currentTime:20};
-  const monitor=await createMonitor({blob:new Blob(),video,start:10,speed:1,initialPosition:20,fadeInSeconds:.04,volume:1.4},env);
+  const monitor=await createMonitor({blob:new Blob(),video,start:10,speed:1,initialPosition:20,fadeInSeconds:.2,volume:1.4},env);
   assert.deepEqual(seeks,[10]);assert.equal(gains[0].gain.value,1.4);assert.equal(gains[1].gain.value,0);
   assert.equal(events.length,0);
   await monitor.sync(20);assert.deepEqual(seeks,[10]);
-  assert.deepEqual(events,['play',['set',0,12],['ramp',1,12.04]]);
+  assert.deepEqual(events,['play',['set',0,12],['ramp',1,12.2]]);
   monitor.setVolume(.6);assert.equal(gains[0].gain.value,.6);
   monitor.pause();await monitor.sync(21);assert.equal(music.currentTime,11);
   assert.equal(events.filter(event=>Array.isArray(event) && event[0]==='ramp').length,1);

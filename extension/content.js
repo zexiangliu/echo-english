@@ -200,7 +200,7 @@
   const captionEvents = ['timeupdate','seeking','seeked','play','pause','ended'];
   let savedBackings = [], activeKaraokeJob = null, songTake = null;
   let backingRestoreRequest=0, restoringBacking=false, karaokeIssue='';
-  let backingOutput=null,leadInOutput=null;
+  let backingOutput=null,leadInOutput=null,recordingReferenceOutput=null;
   let replayMonitor=null, replayVoiceOutput=null, replayTake=null, replayBackingReady=false, replayVoiceMax=2,replayOriginal=false;
   for(const id of ['replayVocalVolume','replayBackingVolume'])$(id).value=1;
   $('mixControls').open=false;
@@ -422,13 +422,13 @@
     $('scopeControls').hidden=false;
     $('recordingOriginalOption').textContent=singing?'原曲（含原唱）':'原声（含对白）';
     $('recordingBackingOption').textContent=singing?'伴奏（去掉原唱）':'背景音（去掉对白）';
-    $('recordingPlaybackHint').textContent=recordingPlayback()==='original'?'播放 YouTube 原音，音量沿用 YouTube；无需先生成伴奏。仅保存麦克风人声，建议戴耳机。回听与合成仍使用伴奏／背景音。':usesBacking()?'需先为练习范围准备伴奏／背景音。录制时仅保存麦克风人声，建议戴耳机。':'录制时不播放参考音；仍可开启耳返。已有伴奏／背景音可用于回听和合成。';
+    $('recordingPlaybackHint').textContent=recordingPlayback()==='original'?'播放 YouTube 原音，前置与录音共用监听音量（最高 100%），录音中可直接调整；无需先生成伴奏。仅保存麦克风人声，建议戴耳机。回听与合成仍使用伴奏／背景音。':usesBacking()?'需先为练习范围准备伴奏／背景音。录制时仅保存麦克风人声，建议戴耳机。':'录制时不播放参考音；仍可开启耳返。已有伴奏／背景音可用于回听和合成。';
     $('backingHelpTitle').textContent=`首次使用：如何启用${backingName()}？`;
     $('backingSettingsHint').textContent=singing?'每次最长 10 分钟。整首生成一次后，较短练习片段可直接复用。':'去掉原对白，尽量保留音乐和环境音。按所选范围提取，最长 10 分钟，建议先试短片段；可能残留对白或损失音效。录音只保存自己的人声。';
     $('originalVolumeLabel').textContent=singing?'原曲':'原声';
     $('backingVolumeLabel').textContent=singing?'录唱监听音量':'背景监听音量';
-    $('backingLiveLabel').textContent=singing?'伴奏':'背景音';
-    $('backingLiveVolume').setAttribute('aria-label',singing?'录音中伴奏监听音量':'录音中背景音监听音量');
+    $('backingLiveLabel').textContent=recordingPlayback()==='original'?(singing?'原曲':'原声'):singing?'伴奏':'背景音';
+    $('backingLiveVolume').setAttribute('aria-label',recordingPlayback()==='original'?'录音中原曲／原声监听音量':singing?'录音中伴奏监听音量':'录音中背景音监听音量');
     $('backingVolume').setAttribute('aria-label',singing?'录唱监听音量':'背景监听音量');
     $('practiceToolsSummary').hidden=false;
     $('transcriptTitle').textContent=singing?'选择想练的一句歌词':'找到想练的那一句';
@@ -704,7 +704,7 @@
     for(const id of ['openSongRecording','takeMixDownload','assembleSong'])$(id).disabled=busy;
     const recording=mode==='recording' || mode==='lead-in';
     $('panel').setAttribute('aria-busy',String(['loading','reading','importing','exporting','saving','permission'].includes(mode)));
-    $('backingLiveControls').hidden=!recording || !recordingSession?.monitor;
+    $('backingLiveControls').hidden=!recording || !(recordingSession?.monitor || recordingPlayback()==='original');
     $('backingLiveVolume').disabled=$('backingLiveControls').hidden;
     $('sidetoneLiveControls').hidden=!recording || !sidetoneEnabled;
     $('liveVocalSettings').hidden=!recording || !sidetoneEnabled;
@@ -805,6 +805,7 @@
   function cancelPlayback() {
     originalNavigation=null;playbackActions.clear();
     leadInOutput?.dispose();leadInOutput=null;
+    recordingReferenceOutput?.dispose();recordingReferenceOutput=null;
     referenceOutput?.dispose();referenceOutput=null;
     recordingSession?.pauseFeedback();
     transport.hide();
@@ -862,9 +863,9 @@
     output.token=token;referenceOutput=output;return output.media;
   }
   function leadInStart(r){return EchoPractice.leadInStart(r.start,$('leadInSeconds').value,{mode:$('leadInMode').value,cues});}
-  async function playRecordingLeadIn(v,r,token,start,{continuous=false}={}){
+  async function playRecordingLeadIn(v,r,token,start,{continuous=false,fullReference=false}={}){
     if(start>=r.start)return false;
-    const media=await referenceMedia(v,{start,end:r.start},token);
+    const media=await referenceMedia(v,{start,end:fullReference?r.end:Math.min(r.end,r.start+2)},token);
     mode='lead-in';controls();media.muted=false;media.playbackRate=r.speed;
     await seek(media,start,token);
     if(token!==generation)return false;
@@ -878,12 +879,12 @@
       await new Promise((resolve,reject)=>{
         playback.onCancel(resolve);
         showVideoTransport('准备录音 · 前置原声',media,{start,end:r.start,speed:r.speed});
-        playback.watchEnd(media,r.start,()=>{if(!continuous || media!==v)media.pause();resolve();});
+        playback.watchEnd(media,r.start,()=>{if(!continuous)media.pause();resolve();});
         playback.timeout(()=>{media.pause();reject(Error('前置播放超时，请检查视频后重试。'));},EchoPractice.playbackTimeout({start,end:r.start,speed:r.speed}));
       });
       completed=true;
     }finally{
-      if(!continuous || !completed || media!==v){output?.dispose();if(leadInOutput===output)leadInOutput=null;}
+      if(!continuous || !completed){output?.dispose();if(leadInOutput===output)leadInOutput=null;}
       media.removeEventListener('timeupdate',update);
       if(token===generation){playback.cancel();if(!completed)transport.hide();}
     }
@@ -1375,15 +1376,18 @@
   $('backingPitchUp').onclick=()=>changeBackingPitch(backingPitch+1);
   $('backingPitchReset').onclick=()=>changeBackingPitch(0);
   function renderBackingVolume(){
-    const volume=Number($('backingVolume').value);
+    const limit=recordingPlayback()==='original'?1:2;
+    const volume=Math.min(limit,Number($('backingVolume').value));
+    $('backingVolume').max=$('backingLiveVolume').max=String(limit);
+    if(Number($('backingVolume').value)>limit)$('backingVolume').value=String(volume);
     $('backingLiveVolume').value=volume;
     for(const id of ['backingVolumeValue','backingLiveValue'])$(id).textContent=`${Math.round(volume*100)}%`;
   }
   for(const id of ['backingVolume','backingLiveVolume']){
     $(id).oninput=()=>{
-      const value=Number($(id).value),volume=Number.isFinite(value)?Math.max(0,Math.min(2,value)):1;
+      const value=Number($(id).value),volume=Number.isFinite(value)?Math.max(0,Math.min(recordingPlayback()==='original'?1:2,value)):1;
       $('backingVolume').value=volume;renderBackingVolume();updateBackingControls();
-      backingOutput?.setVolume(volume);leadInOutput?.setVolume(volume);recordingSession?.setVolume(volume);
+      backingOutput?.setVolume(volume);leadInOutput?.setVolume(volume);recordingReferenceOutput?.setVolume(volume);recordingSession?.setVolume(volume);
     };
     $(id).onchange=saveProgress;
   }
@@ -1676,6 +1680,8 @@
     const source=recordingPlayback(),outputBacking=source==='silent'?null:backingFor(r);
     const ready=source==='backing'?outputBacking:null;
     const pitchAtCapture=backingPitch;
+    // The local original-audio endpoint accepts at most ten minutes per job.
+    const continuousOriginal=source==='original' && (!pitchAtCapture || r.end-preparationStart<=600);
     if(usesBacking() && !ready)throw Error(`请先为当前片段准备${backingName()}，或在练习设置中选择原声或不播放参考音。`);
     deletedTake=null;$('undoDelete').hidden=true;
     const gainKey=singingTake?'sing':'speech',constraints=microphoneConstraints(singingTake);
@@ -1691,7 +1697,7 @@
     };
     const session=EchoRecording.create({constraints,quality:recordingQuality,sidetone:sidetoneEnabled,sidetoneVolume,sidetoneMode,sidetoneReverb:monitoringEffects(),gainDb:gainPreferences[gainKey]?0:manualGainPreferences[gainKey],active,
       microphone:EchoMicrophone,env:globalThis,
-      createMonitor:ready?()=>EchoKaraoke.createMonitor({blob:ready.blob,video:v,start:ready.start,speed:r.speed,volume:Number($('backingVolume').value),initialPosition:r.start,fadeInSeconds:preparationStart<r.start?0.04:0,pitchSemitones:pitchAtCapture,active}):null,
+      createMonitor:ready?()=>EchoKaraoke.createMonitor({blob:ready.blob,video:v,start:ready.start,speed:r.speed,volume:Number($('backingVolume').value),initialPosition:r.start,fadeInSeconds:preparationStart<r.start?0.2:0,pitchSemitones:pitchAtCapture,active}):null,
       createMeter:input=>EchoLiveMeter.start({stream:input,container:$('liveMeter'),canvas:$('liveMeterCanvas'),value:$('liveMeterValue'),bar:$('liveMeterBar')}),
       onError:error=>{if(recordingSession===session && id===videoId){stop();status(error.message);}},
       onComplete:async result=>{
@@ -1719,15 +1725,19 @@
     if(!active())return false;
     saveVideo(v);v.playbackRate=r.speed;
     if(preparationStart<r.start)session.startMeter();
-    await playRecordingLeadIn(v,r,token,preparationStart,{continuous:!!ready && !pitchAtCapture});
+    await playRecordingLeadIn(v,r,token,preparationStart,{continuous:continuousOriginal || !!ready,fullReference:continuousOriginal});
     if(!active())return false;
     const reference=source==='original'?await referenceMedia(v,r,token,pitchAtCapture):v;
     if(!active())return false;
-    if(source!=='original'){referenceOutput?.dispose();referenceOutput=null;}
     // Keep the original audible while the prepared monitor starts. Pausing
     // YouTube here still causes a gap even if its position does not change.
-    const continuous=!!ready && !!leadInOutput && !v.seeking && v.currentTime>=r.start && v.currentTime-r.start<0.1;
+    const continuous=(!!ready || source==='original') && !!leadInOutput && !v.seeking && v.currentTime>=r.start && v.currentTime-r.start<0.1;
+    if(source!=='original' && !continuous){referenceOutput?.dispose();referenceOutput=null;}
     if(!continuous){v.muted=source!=='original';leadInOutput?.dispose();leadInOutput=null;await seek(v,r.start,token);}
+    if(source==='original'){
+      recordingReferenceOutput=continuous?leadInOutput:EchoKaraoke.createLeadInOutput(reference,{volume:Number($('backingVolume').value)},globalThis);
+      if(continuous)leadInOutput=null;
+    }
     if(!active())return false;
     // Every mode starts capture before playback; startup latency must not
     // consume the selected range. The offset records any microphone pre-roll.
@@ -1742,12 +1752,13 @@
       vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-((session.monitor.position?.() ?? r.start)-r.start)/r.speed);
     }
     if(!active())return session.completed;
-    if(continuous){
-      leadInOutput.fadeOut?.(0.04);
-      await playback.delay(40);
+    if(continuous && ready){
+      leadInOutput.fadeOut?.(0.2);
+      await playback.delay(200);
       if(!active())return session.completed;
-      v.muted=true;leadInOutput?.dispose();leadInOutput=null;
-    }else await reference.play();
+      leadInOutput?.dispose();leadInOutput=null;
+      referenceOutput?.dispose();referenceOutput=null;v.muted=true;
+    }else if(!continuous)await reference.play();
     if(!active())return session.completed;
     if(!ready)vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-(v.currentTime-r.start)/r.speed);
     starting=false;
