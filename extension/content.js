@@ -685,7 +685,10 @@
     const recorded=range && videoHistory.some(t=>(t.kind==='song')===singing && Math.abs(t.start-range.start)<0.01 && Math.abs(t.end-range.end)<0.01 && t.speed===range.speed);
     $('record').textContent=singing?(recorded?'● 再录一次':whole?'● 开始整首录唱':paragraph?'● 开始段落录唱':'● 开始片段录唱')
       :whole?'● 开始整段配音':paragraph?'● 开始段落配音':'● 开始配音';
-    $('record').title='使用当前范围以 1× 原速录音，保留之前的版本。';
+    const sourceName=recordingPlayback()==='original'?(singing?'原曲':'原声'):usesBacking()?(singing?'伴奏':'背景音'):'不播放参考音';
+    $('record').title=`录音时播放：${sourceName}。使用当前范围以 1× 原速录音，保留之前的版本。`;
+    $('record').setAttribute('aria-description',`录音时播放：${sourceName}`);
+    $('recordingPlayback').title=`当前：${sourceName} · 选择录音时播放的参考音。${$('recordingPlaybackHint').textContent}`;
     $('original').textContent=singing?'▶ 听原曲':'▶ 听原声';
     const replayMode=$('practiceReplayMode').value;
     $('replay').textContent='▷ 回听录音';
@@ -1682,7 +1685,7 @@
     const pitchAtCapture=backingPitch;
     // The local original-audio endpoint accepts at most ten minutes per job.
     const continuousOriginal=source==='original' && (!pitchAtCapture || r.end-preparationStart<=600);
-    if(usesBacking() && !ready)throw Error(`请先为当前片段准备${backingName()}，或在练习设置中选择原声或不播放参考音。`);
+    if(usesBacking() && !ready)throw Error(`请先为当前片段准备${backingName()}，或在录音按钮右侧下拉选择原声或不播放参考音。`);
     deletedTake=null;$('undoDelete').hidden=true;
     const gainKey=singingTake?'sing':'speech',constraints=microphoneConstraints(singingTake);
     const active=()=>token===generation && id===videoId;

@@ -1,6 +1,6 @@
 {
   "name": "echo-english",
-  "version": "0.36.19",
+  "version": "0.36.20",
   "private": true,
   "scripts": {
     "test": "node --test \"tests/*.test.cjs\""
