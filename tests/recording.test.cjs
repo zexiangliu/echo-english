@@ -96,3 +96,16 @@ test('discard releases capture resources without returning buffered or final enc
   assert.equal(await session.discard(),false);assert.deepEqual(f.results,[null]);
   assert.equal(f.count.mic,1);assert.equal(f.count.monitor,1);assert.equal(f.count.input,1);
 });
+
+
+test('capture elapsed time excludes repeated pauses, setup and encoder flushing',async()=>{
+  let now=0;
+  const f=fixture({delayedStop:true});f.options.env.performance={now:()=>now};
+  const session=create(f.options);await session.prepare();now=1000;assert.equal(session.elapsed(),0);
+  session.start();now=1250;assert.equal(session.elapsed(),.25);
+  session.pause();session.pause();now=6250;assert.equal(session.elapsed(),.25);
+  session.resume();session.resume();now=7000;assert.equal(session.elapsed(),1);
+  session.pause();now=9000;session.resume();now=9500;session.stop();
+  now=10000;assert.equal(session.elapsed(),1.5);
+  f.recorder.onstop();await session.completed;assert.equal(session.elapsed(),1.5);
+});

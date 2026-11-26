@@ -1749,14 +1749,13 @@
     // Every mode starts capture before playback; startup latency must not
     // consume the selected range. The offset records any microphone pre-roll.
     if(!session.start())return false;
-    const clock=()=>globalThis.performance?.now?.() ?? Date.now(),captureStartedAt=clock();
     mode='recording';controls();session.startMeter();
     showVideoTransport('录音',v,r);
     status('录音已启动，正在准备同步播放…');
     v.addEventListener('waiting',onWaiting);v.addEventListener('playing',onPlaying);v.addEventListener('timeupdate',observePosition);
     if(ready){
       await session.monitor.sync(continuous?v.currentTime:r.start,{followVideo:continuous});
-      vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-((session.monitor.position?.() ?? r.start)-r.start)/r.speed);
+      vocalOffset=Math.max(0,session.elapsed()-((session.monitor.position?.() ?? r.start)-r.start)/r.speed);
     }
     if(!active())return session.completed;
     if(continuous && ready){
@@ -1767,7 +1766,7 @@
       referenceOutput?.dispose();referenceOutput=null;v.muted=true;
     }else if(!continuous)await reference.play();
     if(!active())return session.completed;
-    if(!ready)vocalOffset=Math.max(0,(clock()-captureStartedAt)/1000-(v.currentTime-r.start)/r.speed);
+    if(!ready)vocalOffset=Math.max(0,session.elapsed()-(v.currentTime-r.start)/r.speed);
     starting=false;
     if(session.state==='paused'){await session.monitor?.resume?.();if(!active())return session.completed;session.resume();}
     const position=session.monitor?.position?.();

@@ -1266,7 +1266,7 @@ test('manual input gain reaches the saved vocal recording and meter, then releas
 
 function leadInVideo({hold=false}={}){
   const events=new Map(),plays=[],seeks=[];let time=0;
-  return {duration:60,muted:true,playbackRate:1.25,plays,seeks,pause(){},advance(value){time=value;for(const fn of [...events.get('timeupdate') || []])fn();},
+  return {duration:60,muted:true,playbackRate:1.25,plays,seeks,pause(){},emit(name){for(const fn of [...events.get(name) || []])fn();},advance(value){time=value;for(const fn of [...events.get('timeupdate') || []])fn();},
     get currentTime(){return time;},set currentTime(value){time=value;seeks.push(value);queueMicrotask(()=>{for(const fn of events.get('seeked') || [])fn();});},
     addEventListener(name,fn){if(!events.has(name))events.set(name,new Set());events.get(name).add(fn);},
     removeEventListener(name,fn){events.get(name)?.delete(fn);},
@@ -2666,6 +2666,23 @@ for(const source of ['backing','original'])for(const seconds of [0,3,10])test(`s
   assert.ok(takes.every(t=>t.backingPitch===3));assert.equal(takes[0].effects,undefined);assert.ok(takes.every(t=>t.backingKey==='music' && t.capture==='vocal'));
   const plan=require('../extension/audio-export.js').plan(takes,60);assert.deepEqual(plan.segments.map(s=>[s.start,s.end]),[[5,9],[12,15]]);
   assert.equal(nodes.get('skipInstrumental').hidden,true);(await storage.ready).close();
+});
+
+test('skipping intro does not count buffered handoff time as recorded vocal padding',async()=>{
+  const storage=createStorage(new IDBFactory()),video=leadInVideo({hold:true});let now=0,releaseMonitor,created=0;
+  await storage.saveSession({videoId:'video',activity:'sing',scopes:{sing:'whole'},recordingPlaybackPreferences:{sing:'backing'},cues:[{start:5,end:8,text:'First lyric'}],leadInMode:'seconds',leadInSeconds:3});
+  await storage.saveBacking({key:'music',videoId:'video',start:0,end:60,createdAt:1,blob:new Blob(['music'])});
+  class MediaRecorder{static isTypeSupported(){return true;}constructor(){this.state='inactive';this.mimeType='audio/webm';}start(){this.state='recording';}pause(){this.state='paused';}resume(){this.state='recording';}stop(){this.state='inactive';this.ondataavailable({data:new Blob(['voice'])});queueMicrotask(()=>this.onstop());}}
+  const {nodes}=await mount(storage,{video,globals:{performance:{now:()=>now},MediaRecorder,navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}},EchoKaraoke:{...require('../extension/karaoke.js'),async createMonitor(){const continuation=++created===2;return {position:()=>continuation?5:0,async sync(){if(continuation)await new Promise(resolve=>releaseMonitor=resolve);},pause(){},dispose(){},setVolume(){}};}},requestAnimationFrame:fn=>setTimeout(fn,1),cancelAnimationFrame:clearTimeout}});
+  const first=nodes.get('record').onclick();await waitUntil(()=>video.plays.length===1);
+  const skipping=nodes.get('skipInstrumental').onclick();await waitUntil(()=>video.plays.length===2);
+  video.advance(5);await waitUntil(()=>!!releaseMonitor);
+  // Seeking to a later lyric can buffer while the monitor is starting.
+  video.emit('waiting');now=2000;releaseMonitor();
+  await waitUntil(()=>nodes.get('status').textContent.includes('正在录制人声'));
+  video.advance(7);nodes.get('stop').onclick();await Promise.all([first,skipping]);
+  const [take]=await storage.listTakes('video');assert.equal(take.start,5);assert.equal(take.vocalOffset,0);
+  (await storage.ready).close();
 });
 
 test('restarting a skipped lyric keeps its N-second preparation instead of the previous-cue setting',async()=>{
