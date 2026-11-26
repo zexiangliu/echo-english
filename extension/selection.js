@@ -57,7 +57,9 @@
     return {range: {start, end, speed}, key: activity === 'sing' ? `song:${key}` : key, label};
   }
 
-  const api = {MAX_SECONDS, restoreScopes, cueKey, clipRange, paragraphRange, resolve};
+  function versions(takes,key){return takes.filter(t=>t.cueKey===key).sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));}
+
+  const api = {MAX_SECONDS, restoreScopes, cueKey, clipRange, paragraphRange, resolve, versions};
   if (typeof module !== 'undefined') module.exports = api;
   else root.EchoSelection = api;
 })(globalThis);

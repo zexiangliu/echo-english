@@ -1,5 +1,6 @@
 // Selection and preview for assembly. Original recordings are never modified.
 (function(root){
+  const recordingSelection=()=>typeof module!=='undefined'?require('./selection.js'):root.EchoSelection;
   function buildRows(takes,duration,saved=[],api=root.EchoAudioExport){
     const voices=takes.filter(t=>t.capture==='vocal' && !t.withBacking && t.speed===1);
     if(!voices.length)throw Error(takes.some(t=>t.capture==='vocal' && !t.withBacking)?'请先录制 1× 独立人声，再选择片段合成。':'还没有可合成的独立人声。旧版混合录音无法单独提取人声，请重新录音。');
@@ -34,6 +35,8 @@
     // Keep only the current video's two workspaces; recording data stays in storage.
     let workspaceVideoId=null,workspaces={};
     const adjustDialog=$('assemblyAdjustDialog');
+    let versionNumbers=new Map();
+    const versionTitle=take=>`${take.label || '人声录音'} · 版本 ${versionNumbers.get(take.id)?.number || 1}`;
     const starring=new Set();
     const audio=$('assemblyAudio');
     function element(tag,text,cls){const node=doc.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;}
@@ -78,7 +81,7 @@
           const selected=option.take.id===id;
           option.choose.setAttribute('aria-pressed',String(selected));
           option.choose.disabled=busy;option.play.disabled=busy || !inside;
-          option.heading.textContent=`${option.take.starred?'★ ':''}${option.take.label || '人声录音'}`;
+          option.heading.textContent=`${option.take.starred?'★ ':''}${versionTitle(option.take)}`;
           option.star.textContent=option.take.starred?'★':'☆';
           option.star.setAttribute('aria-pressed',String(!!option.take.starred));
           option.star.setAttribute('aria-label',`${option.take.starred?'取消标星':'标星'} ${option.take.label || '人声录音'}`);
@@ -132,10 +135,10 @@
         for(const take of row.candidates){
           const item=element('div',undefined,'assembly-candidate'),choose=element('button',undefined,'assembly-choice');
           choose.setAttribute('aria-pressed','false');
-          const heading=element('span',`${take.starred?'★ ':''}${take.label || '人声录音'}`,'assembly-choice-title'),badge=element('span','','assembly-choice-badge');
-          const detail=element('span',`原片段 ${title(take)} · ${pitchLabel(take)} · ${new Date(take.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})}${take.id===row.autoId?' · 最新':''}`,'assembly-choice-meta');
+          const heading=element('span',`${take.starred?'★ ':''}${versionTitle(take)}`,'assembly-choice-title'),badge=element('span','','assembly-choice-badge');
+          const detail=element('span',`原片段 ${title(take)} · ${pitchLabel(take)} · ${new Date(take.createdAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})}${versionNumbers.get(take.id)?.latest?' · 最新':''}`,'assembly-choice-meta');
           choose.append(heading,detail,badge);
-          const play=element('button','▷ 试听','compact');play.setAttribute('aria-label',`试听 ${take.label || '人声录音'} 在 ${title(row)} 的部分`);
+          const play=element('button','▷ 试听','compact');play.setAttribute('aria-label',`试听 ${versionTitle(take)} 在 ${title(row)} 的部分`);
           choose.onclick=()=>chooseCandidate(row,take.id);
           play.onclick=()=>render('preview',row,take.id);
           const star=element('button','☆','compact assembly-star');star.hidden=!onStar;
@@ -173,7 +176,7 @@
       if(!selected.some(part=>part.takeId)){$('assemblyEditorMessage').textContent='此范围内没有选中的人声，请先选择录音片段。';return;}
       const token=++revision;busy=true;clearAudio();update();
       const auditionTake=auditionId?row.candidates.find(take=>take.id===auditionId):null;
-      const label=sourceId && !context?`此录音的已选部分 ${title({start:origin,end})}`:context?`段落衔接 ${title({start:origin,end})}`:auditionTake?`${title({start:origin,end})} · ${auditionTake.label || '人声录音'} · ${pitchLabel(auditionTake)}`:origin===0 && end===duration?(activity==='sing'?'整首拼接':'整段配音'):`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
+      const label=sourceId && !context?`此录音的已选部分 ${title({start:origin,end})}`:context?`段落衔接 ${title({start:origin,end})}`:auditionTake?`${title({start:origin,end})} · ${versionTitle(auditionTake)} · ${pitchLabel(auditionTake)}`:origin===0 && end===duration?(activity==='sing'?'整首拼接':'整段配音'):`片段 ${time(origin)}–${time(end)}`;$('assemblyEditorMessage').textContent=`正在本机准备${label}…`;
       const active=()=>isOpen() && token===revision;
       try{
         const result=await onRender({selection:selected,origin,duration:length,withMusic:$('assemblyType').value==='mixed',active});
@@ -190,7 +193,15 @@
       finally{if(active()){busy=false;update();}}
     }
     function open(options){
-      closeAdjustment();activity=options.activity==='speech'?'speech':'sing';takes=options.takes;duration=options.duration;rows=buildRows(takes,duration,options.choices,env.EchoAudioExport);
+      closeAdjustment();activity=options.activity==='speech'?'speech':'sing';takes=options.takes;duration=options.duration;
+      versionNumbers=new Map();
+      const groups=new Map();
+      for(const take of takes){if(!groups.has(take.cueKey))groups.set(take.cueKey,[]);groups.get(take.cueKey).push(take);}
+      for(const [key,group] of groups){
+        const versions=recordingSelection().versions(group,key);
+        versions.forEach((take,index)=>versionNumbers.set(take.id,{number:index+1,latest:index===versions.length-1}));
+      }
+      rows=buildRows(takes,duration,options.choices,env.EchoAudioExport);
       $('assemblyWholeOption').textContent=activity==='sing'?'整首歌曲':'整段视频';
       $('assemblyMixedOption').textContent=activity==='sing'?'人声＋伴奏':'人声＋背景音';
       const videoId=options.videoId ?? takes[0]?.videoId ?? '';
@@ -242,7 +253,7 @@
       $('assemblyLocalVolumeLabel').textContent=whole?'已选部分人声音量（%）':'本段人声音量（%）';
       $('assemblyLocalDelayLabel').textContent=whole?'已选部分额外偏移（毫秒）':'本段额外偏移（毫秒）';
       $('assemblyLocalVolumeSlider').setAttribute('aria-label',whole?'已选部分人声音量滑块':'本段人声音量滑块');
-      $('assemblyLocalInfo').textContent=`${source.label || '人声录音'} · 原片段 ${title(source)} · ${whole?`已选 ${targets.length} 个区间`:title(row)}`;
+      $('assemblyLocalInfo').textContent=`${versionTitle(source)} · 原片段 ${title(source)} · ${whole?`已选 ${targets.length} 个区间`:title(row)}`;
       const mixed=whole && targets.some(part=>read(part).delayMs!==a.delayMs || read(part).volume!==a.volume);
       $('assemblyLocalScopeHint').textContent=whole?`仅修改当前导出范围内选用此录音版本的 ${targets.length} 个区间，不修改其他版本。${mixed?'各区间数值不同，当前显示所点区间的值；只统一你改动的项目。':'只统一你改动的项目。'}`:'只修改当前区间的当前版本；切换候选后分别保留微调。';
       $('assemblyLocalInherited').textContent=`版本对齐 ${inherited} ms ＋ ${whole?'所点区间':'本段'} ${a.delayMs} ms ＝ ${inherited+a.delayMs} ms（负数提前，正数延后）`;
@@ -302,7 +313,7 @@
     };
     $('assemblyReset').onclick=()=>{if(busy)return;for(const row of rows){row.choice=row.autoId?'auto':row.candidates[0]?.id || 'auto';row.enabled=!!row.autoId;}changed();$('assemblyEditorMessage').textContent='已恢复自动选择最新版本。';};
     $('assemblyCancelRender').onclick=()=>{revision++;busy=false;clearAudio();update();$('assemblyEditorMessage').textContent='已取消生成，选择仍保留。';};
-    return {open,close,isOpen};
+    return {open,close,isOpen,escape(){if(editing)closeAdjustment();else close();}};
   }
   const api={buildRows,selections,rangeSelection,choices,preview,attach};
   if(typeof module!=='undefined')module.exports=api;else root.EchoAssembly=api;

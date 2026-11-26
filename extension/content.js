@@ -36,6 +36,7 @@
   // context without making the compact layout or the fixed controls taller.
   let captionContextCount=1,displayedCaptionIndex=-1,practiceAvailableHeight=0;
   const practiceLayoutObserver=globalThis.ResizeObserver?new ResizeObserver(entries=>{
+    if(entries.some(entry=>entry.target===$('versionChoices')))revealSelectedVersion();
     const pageEntry=entries.find(entry=>entry.target===$('pages'));
     if(pageEntry)practiceAvailableHeight=pageEntry.contentRect.height;
     const height=practiceAvailableHeight;
@@ -44,7 +45,7 @@
     const count=height>=340?Math.max(1,Math.min(5,1+Math.floor((height-occupied-240)/30))):1;
     if(count!==captionContextCount){captionContextCount=count;renderCaptionContext(displayedCaptionIndex);}
   }):null;
-  for(const id of ['pages','scopeControls','clipBounds','singDetails'])practiceLayoutObserver?.observe($(id));
+  for(const id of ['pages','scopeControls','clipBounds','singDetails','versionChoices'])practiceLayoutObserver?.observe($(id));
 
   let starringTake=false;
   let cues = [], index = -1, take = null, mode = 'idle', generation = 0,clipRangeAdjusted=false;
@@ -1174,7 +1175,7 @@
     choices.replaceChildren();choices.hidden=true;
     let selectedVersion=null;
     if(take){
-      const versions=videoHistory.filter(t=>t.cueKey===take.cueKey).sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+      const versions=EchoSelection.versions(videoHistory,take.cueKey);
       $('versionChoices').hidden=versions.length<2;
       versions.forEach((value,i)=>{
         const button=document.createElement('button');button.className='version-choice';button.textContent=`${value.starred?'★ ':''}版本 ${i+1}${i===versions.length-1?' · 最新':''}`;
@@ -1185,11 +1186,14 @@
     }
     controls();
     choices.scrollLeft=versionScroll;
-    if(selectedVersion && choices.clientWidth){
-      const left=selectedVersion.offsetLeft,right=left+selectedVersion.offsetWidth;
-      if(left<choices.scrollLeft)choices.scrollLeft=left;
-      else if(right>choices.scrollLeft+choices.clientWidth)choices.scrollLeft=right-choices.clientWidth;
-    }
+    revealSelectedVersion(selectedVersion);
+  }
+  function revealSelectedVersion(selectedVersion=$('versionChoices').querySelector?.('[aria-pressed="true"]')){
+    const choices=$('versionChoices');
+    if(!selectedVersion || !choices.clientWidth)return;
+    const left=selectedVersion.offsetLeft,right=left+selectedVersion.offsetWidth;
+    if(left<choices.scrollLeft)choices.scrollLeft=left;
+    else if(right>choices.scrollLeft+choices.clientWidth)choices.scrollLeft=right-choices.clientWidth;
   }
   function chooseCurrentTake(preferredId) {
     const key=currentCueKey();
@@ -1625,7 +1629,7 @@
     if(mode==='replay')stop();
     // The recording browser may be on a different sentence than practice.
     // Keep its version group selected rather than falling back to currentCueKey().
-    const versions=videoHistory.filter(t=>t.cueKey===value.cueKey).sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+    const versions=EchoSelection.versions(videoHistory,value.cueKey);
     const versionIndex=versions.findIndex(t=>t.id===value.id);
     const sameSegment=versions[versionIndex+1] || versions[versionIndex-1];
     const queue=EchoPractice.recordingQueue(videoHistory),position=queue.findIndex(t=>t.cueKey===value.cueKey);
@@ -2198,7 +2202,7 @@
     if($('recordingDeleteDialog').open){closeRecordingDelete();return;}
     if(subtitleEditor?.isOpen()){subtitleEditor.close();return;}
     if(tools.isOpen()){tools.close();return;}
-    if(assembly.isOpen()){assembly.close();return;}
+    if(assembly.isOpen()){assembly.escape();return;}
     if(models.isOpen()){models.close();return;}
     if($('recordingDialog').open){closeRecordingDialog();return;}
     if(clipDialog.open){closeClipDialog();return;}

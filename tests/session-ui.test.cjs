@@ -3398,3 +3398,42 @@ for(const kind of ['song','speech'])test(`assembly can adjust all selected inter
   assert.ok((await storage.listTakes('video')).every(t=>!t.effects));
   nodes.get('closeAssembly').onclick();(await storage.ready).close();
 });
+
+test('assembly versions match the recording list and Escape returns one dialog level without losing adjustments',async()=>{
+  // The manifest loads assembly before selection; resolve that dependency on use.
+  const browser={};vm.runInNewContext(fs.readFileSync('extension/assembly.js','utf8'),browser);
+  browser.EchoSelection=require('../extension/selection.js');
+  const storage=createStorage(new IDBFactory()),requests=[];
+  const base={videoId:'video',kind:'song',capture:'vocal',cueKey:'same',label:'同一段',start:0,end:4,blob:new Blob(['voice'])};
+  for(const [id,speed,createdAt] of [['one',1,1],['two',1,2],['three',.5,3]])await storage.saveTake({...base,id,speed,createdAt});
+  const {nodes,root}=await mount(storage,{video:{duration:10,pause(){}},globals:{EchoAssembly:browser.EchoAssembly,EchoAudioExport:{...require('../extension/audio-export.js'),async render(options){requests.push(options);return {blob:new Blob(['preview']),gaps:[]};}}}});
+  await nodes.get('assembleSong').onclick();
+  const row=nodes.get('assemblyEditorList').children[0],options=row.children[1].children;
+  assert.match(options[0].children[0].children[0].textContent,/同一段 · 版本 2/);
+  assert.match(options[1].children[0].children[0].textContent,/同一段 · 版本 1/);
+  assert.doesNotMatch(options[0].children[0].children[1].textContent,/最新/,'an ineligible newer recording is not relabeled as an older version');
+  await options[0].children[1].onclick();assert.match(nodes.get('assemblyAudioLabel').textContent,/版本 2/);
+  nodes.get('assemblyEditorList').scrollTop=240;row.children[0].children[2].onclick();
+  nodes.get('assemblyLocalVolume').value='120';nodes.get('assemblyLocalVolume').onchange();
+  root.onkeydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+  assert.equal(nodes.get('assemblyAdjustDialog').open,false);assert.equal(nodes.get('assemblyDialog').open,true);
+  assert.equal(nodes.get('assemblyEditorList').scrollTop,240);
+  row.children[0].children[2].onclick();assert.equal(nodes.get('assemblyLocalVolume').value,120);
+  nodes.get('closeAssemblyAdjust').onclick();await nodes.get('assemblyPreview').onclick();
+  assert.equal(requests.at(-1).selection[0].adjustment.volume,1.2);
+  root.onkeydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+  assert.equal(nodes.get('assemblyDialog').open,false);assert.equal(nodes.get('assemblyAudio').hidden,true);
+  (await storage.ready).close();
+});
+
+
+test('resizing the version strip keeps the selected version visible without changing selection',async()=>{
+  const storage=createStorage(new IDBFactory());let resized;
+  const {nodes}=await mount(storage,{globals:{ResizeObserver:class{constructor(callback){resized=callback;}observe(){}}}});
+  const strip=nodes.get('versionChoices'),selected={offsetLeft:500,offsetWidth:80};
+  strip.querySelector=()=>selected;strip.scrollLeft=420;strip.clientWidth=100;
+  resized([{target:strip}]);assert.equal(strip.scrollLeft,480);
+  selected.offsetLeft=10;strip.clientWidth=160;resized([{target:strip}]);assert.equal(strip.scrollLeft,10);
+  strip.clientWidth=0;strip.scrollLeft=5;resized([{target:strip}]);assert.equal(strip.scrollLeft,5);
+  (await storage.ready).close();
+});
